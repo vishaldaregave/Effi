@@ -395,7 +395,9 @@ const connectSocket = async (): Promise<WASocket> => {
   const state = globalState();
   if (state.socket) return state.socket;
   if (state.socketStarting) return state.socketStarting;
-  if (allowedNumbers.size === 0) throw new Error("WHATSAPP_ALLOWED_NUMBERS must contain at least one phone number.");
+  if (allowedNumbers.size === 0) {
+    console.info("[whatsapp] WHATSAPP_ALLOWED_NUMBERS is empty; accepting incoming messages from all senders.");
+  }
 
   state.socketStarting = (async () => {
     const { state: authState, saveCreds } = await useMultiFileAuthState(authDirectory);
