@@ -10,8 +10,9 @@ import {
 import { FileMediaStorage } from "../../src/whatsapp-persistence.js";
 import { AppReportMediaStore } from "../../src/app-report-media.js";
 
-const authenticationBaseUrl =
-  process.env.EFFI_AUTHENTICATION_BASE_URL ?? "http://localhost:3000/effi/auth";
+const getAuthenticationBaseUrl = () =>
+  process.env.EFFI_AUTHENTICATION_BASE_URL ||
+  "https://officer-dashboard-six.vercel.app/effi/auth";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -78,14 +79,32 @@ export const reportConversationFromAuth = (
 ): ReportConversation | undefined =>
   conversationForAuth(auth.initiator) ?? conversationForAuth(auth.current);
 
-const globalReporting = globalThis as unknown as { __effi_report_store?: SimulatedReportStore };
+const globalReporting = globalThis as unknown as {
+  __effi_report_store?: SimulatedReportStore;
+};
+
 export const reportStore = (globalReporting.__effi_report_store ??= new SimulatedReportStore(
   () => new Date().toISOString(),
   {
-    authenticationBaseUrl,
+    get authenticationBaseUrl() {
+      return getAuthenticationBaseUrl();
+    },
     tokenFactory: () => randomBytes(24).toString("base64url"),
   },
 ));
+
+if (globalReporting.__effi_report_store) {
+  const store = globalReporting.__effi_report_store as unknown as {
+    options?: { authenticationBaseUrl?: string };
+  };
+  if (store.options) {
+    Object.defineProperty(store.options, "authenticationBaseUrl", {
+      get: getAuthenticationBaseUrl,
+      configurable: true,
+      enumerable: true,
+    });
+  }
+}
 
 export const reportIngress = new SharedReportIngress(reportStore);
 
