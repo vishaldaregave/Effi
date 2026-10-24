@@ -100,15 +100,33 @@ export const resolveAllowedWhatsAppSender = async (input: {
   jid: string | null | undefined;
   allowedNumbers: ReadonlySet<string>;
   getPhoneJidForLid: (lid: string) => Promise<string | null>;
+  participant?: string | null;
 }): Promise<WhatsAppSenderIdentity | undefined> => {
   const jid = input.jid ? jidNormalizedUser(input.jid) : "";
   if (!jid || (!isPnUser(jid) && !isLidUser(jid))) return undefined;
-  const phoneJid = isPnUser(jid) ? jid : await input.getPhoneJidForLid(jid);
-  if (!phoneJid) return undefined;
+
+  let phoneJid = isPnUser(jid)
+    ? jid
+    : await Promise.resolve(input.getPhoneJidForLid(jid)).catch(() => null);
+
+  if (!phoneJid && input.participant && isPnUser(input.participant)) {
+    phoneJid = jidNormalizedUser(input.participant);
+  }
+
+  const isWildcardAllowed = input.allowedNumbers.size === 0 || input.allowedNumbers.has("*");
+
+  if (!phoneJid) {
+    if (isWildcardAllowed) {
+      phoneJid = jid;
+    } else {
+      return undefined;
+    }
+  }
+
   const normalizedPhoneJid = jidNormalizedUser(phoneJid);
-  const phoneNumber = phoneNumberFromJid(normalizedPhoneJid);
+  const phoneNumber = phoneNumberFromJid(normalizedPhoneJid) ?? digitsOnly(normalizedPhoneJid);
   if (!phoneNumber) return undefined;
-  if (input.allowedNumbers.size > 0 && !input.allowedNumbers.has(phoneNumber) && !input.allowedNumbers.has("*")) return undefined;
+  if (!isWildcardAllowed && !input.allowedNumbers.has(phoneNumber)) return undefined;
   return { jid, phoneJid: normalizedPhoneJid, phoneNumber };
 };
 

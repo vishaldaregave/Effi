@@ -239,12 +239,20 @@ const handleInboundMessage = async (message: WAMessage): Promise<void> => {
   const state = globalState();
   const socket = state.socket;
   if (!socket || message.key.fromMe === true) return;
+  const dynamicAllowedNumbers = parseWhatsAppAllowedNumbers(process.env.WHATSAPP_ALLOWED_NUMBERS);
   const sender = await resolveAllowedWhatsAppSender({
     jid: message.key.remoteJid,
-    allowedNumbers,
+    allowedNumbers: dynamicAllowedNumbers,
     getPhoneJidForLid: (lid) => socket.signalRepository.lidMapping.getPNForLID(lid),
+    participant: message.key.participant,
   });
-  if (!sender) return;
+  if (!sender) {
+    console.warn("[whatsapp] dropped message from unallowed or unresolvable sender", {
+      jid: message.key.remoteJid,
+      participant: message.key.participant,
+    });
+    return;
+  }
   if (!state.from) {
     state.queuedMessages.push(message);
     void bootstrapFrom();
@@ -403,6 +411,7 @@ const connectSocket = async (): Promise<WASocket> => {
     const { state: authState, saveCreds } = await useMultiFileAuthState(authDirectory);
     const { version } = await fetchLatestBaileysVersion();
     const socket = makeWASocket({ version, browser: Browsers.ubuntu("effi-whatsapp"), auth: authState });
+    state.socket = socket;
     socket.ev.on("creds.update", saveCreds);
     socket.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
       if (qr) {
@@ -418,22 +427,24 @@ const connectSocket = async (): Promise<WASocket> => {
       if (connection !== "close" || globalState().socket !== socket) return;
       const statusCode = lastDisconnect?.error instanceof Boom ? lastDisconnect.error.output.statusCode : undefined;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
-      const reconnect = statusCode !== DisconnectReason.connectionReplaced;
+      const replaced = statusCode === DisconnectReason.connectionReplaced;
+      const reconnect = !loggedOut && !replaced;
       const current = globalState();
       current.socket = null;
       current.socketStarting = null;
       current.listenerSocket = null;
       void stopAllTyping();
-      console.error(`[whatsapp] connection closed with status ${statusCode ?? "unknown"}; reconnect=${reconnect}`);
+      console.error(`[whatsapp] connection closed with status ${statusCode ?? "unknown"}; reconnect=${reconnect || replaced}`);
       if (loggedOut) {
         void archiveLoggedOutAuth().then(() => setTimeout(wireSocketListener, 500)).catch((error) => {
           console.error("Effi WhatsApp auth reset failed", failureContext("logged-out auth archive", error));
         });
       } else if (reconnect) {
         setTimeout(wireSocketListener, 500);
+      } else if (replaced) {
+        setTimeout(wireSocketListener, 3000);
       }
     });
-    state.socket = socket;
     return socket;
   })().catch((error) => {
     state.socket = null;

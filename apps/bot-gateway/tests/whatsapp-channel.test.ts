@@ -84,6 +84,31 @@ describe("direct WhatsApp channel", () => {
     expect(identity).toEqual({ ...sender, jid: "123456789012345@lid" });
   });
 
+  it("accepts an unmapped LID sender when whitelist contains wildcard", async () => {
+    const identity = await resolveAllowedWhatsAppSender({
+      jid: "57076273397761@lid",
+      allowedNumbers: new Set(["*"]),
+      getPhoneJidForLid: async () => null,
+    });
+
+    expect(identity).toEqual({
+      jid: "57076273397761@lid",
+      phoneJid: "57076273397761@lid",
+      phoneNumber: "57076273397761",
+    });
+  });
+
+  it("resolves phone JID from participant if getPhoneJidForLid returns null", async () => {
+    const identity = await resolveAllowedWhatsAppSender({
+      jid: "57076273397761@lid",
+      allowedNumbers,
+      getPhoneJidForLid: async () => null,
+      participant: sender.phoneJid,
+    });
+
+    expect(identity).toEqual({ ...sender, jid: "57076273397761@lid" });
+  });
+
   it("normalizes a text message into the shared report contract", async () => {
     const normalized = await normalizeWhatsAppMessage({
       message: message("wamid.text-1", { conversation: "  A pothole blocks the road.  " }),
