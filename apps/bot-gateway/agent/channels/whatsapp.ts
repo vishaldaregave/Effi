@@ -22,6 +22,7 @@ import { createChannelAcknowledgementCallback } from "../../src/channel-auth-cal
 import { failureContext } from "../../src/failure-context.js";
 import { draftCancellationReply, isDraftCancellationCommand } from "../../src/report-ingress.js";
 import {
+  detectTextLanguage,
   isReportReadyForReview,
   isReportReviewMessage,
   synthesizeVoiceOrUndefined,
@@ -123,19 +124,25 @@ const sendText = async (socket: WASocket, jid: string, text: string): Promise<vo
 };
 
 const ffmpegExecutable = async (): Promise<string> => {
+  const resolved = typeof ffmpegPath === "string" ? ffmpegPath : (ffmpegPath as unknown as { default?: string })?.default;
+  const binaryName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   const candidates = [
-    resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg"),
-    ffmpegPath,
-  ].filter((candidate): candidate is string => Boolean(candidate));
+    resolved,
+    resolve(process.cwd(), "node_modules", "ffmpeg-static", binaryName),
+    resolve(process.cwd(), "..", "..", "node_modules", "ffmpeg-static", binaryName),
+    resolve(process.cwd(), "..", "..", "node_modules", ".pnpm", "ffmpeg-static@5.3.0", "node_modules", "ffmpeg-static", binaryName),
+    binaryName,
+  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
   for (const candidate of candidates) {
+    if (candidate === binaryName) return candidate;
     try {
-      await access(candidate, constants.X_OK);
+      await access(candidate, constants.F_OK);
       return candidate;
     } catch {
-      // Try the next installed path.
+      // Try next candidate.
     }
   }
-  throw new Error("ffmpeg-static did not provide an executable.");
+  return binaryName;
 };
 
 const mp3ToWhatsAppVoiceNote = async (mp3: Buffer): Promise<Buffer> => new Promise((resolveVoice, reject) => {
@@ -315,6 +322,13 @@ const handleInboundMessage = async (message: WAMessage): Promise<void> => {
         await messageDedupe.complete(providerId);
         return;
       }
+      voicePreferences.remember({
+        channel: "whatsapp",
+        conversationId: sender.jid,
+        ...(inbound.voiceTranscript ? { voiceTranscript: inbound.voiceTranscript } : {}),
+        inputModality: "voice",
+        ...(inbound.voice?.languageCode ? { languageCode: inbound.voice.languageCode } : {}),
+      });
     }
     if (record.conversation.phase === "authentication_pending") {
       await sendText(socket, sender.jid, authenticationPendingReply);
@@ -494,7 +508,7 @@ const channel = defineChannel<WhatsAppState, WhatsAppChannelContext>({
       const finalInterpretation = isReportReadyForReview(reportStore.activeConversation("whatsapp", state.jid)) || isReportReviewMessage(event.message);
       if (isVoice) {
         if (finalInterpretation) await sendText(socket, state.jid, event.message);
-        const replyLang = preference?.languageCode ?? "mr-IN";
+        const replyLang = detectTextLanguage(event.message) ?? preference?.languageCode ?? "mr-IN";
         await sendVoiceReply(socket, state.jid, event.message, replyLang);
       } else {
         await sendText(socket, state.jid, event.message);

@@ -89,9 +89,11 @@ export class DeepgramVoiceProvider {
 
     const normalized = normalizeLanguageCode(rawLang);
     const textLang = detectTextLanguage(transcript);
-    const languageCode = (normalized === "hi-IN" && textLang === "mr-IN")
-      ? "mr-IN"
-      : (normalized ?? textLang ?? "en-IN");
+    const languageCode = (textLang && (textLang === "mr-IN" || textLang === "hi-IN") && normalized === "en-IN")
+      ? textLang
+      : ((normalized === "hi-IN" && textLang === "mr-IN")
+        ? "mr-IN"
+        : (normalized ?? textLang ?? "en-IN"));
 
     return { status: "transcribed", transcript, languageCode };
   }

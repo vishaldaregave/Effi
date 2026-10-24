@@ -60,12 +60,19 @@ export class SharedReportIngress {
   async acceptDurably(inbound: InboundMessage, durableStore: ConvexReportStore): Promise<ReportIngressRecord | undefined> {
     const durable = await durableStore.persistInbound(inbound);
     this.store.restoreConversation(durable.messages.map((message) => message.payload).filter(isInboundMessage), durable.draft.phase, durable.draft.sessionId);
+    voicePreferences.remember({
+      channel: inbound.channel,
+      conversationId: inbound.conversationId,
+      ...(inbound.text === undefined ? {} : { text: inbound.text }),
+      ...(inbound.voiceTranscript === undefined ? {} : { voiceTranscript: inbound.voiceTranscript }),
+      inputModality: inbound.voice ? "voice" : "text",
+      ...(inbound.voice?.languageCode ? { languageCode: inbound.voice.languageCode } : {}),
+    });
     return this.acceptForDispatch(inbound);
   }
 
   enrichVoice(record: ReportIngressRecord, inbound: InboundMessage): ReportIngressRecord {
     const persisted = this.store.enrichVoiceMessage(inbound);
-    if (!persisted) return record;
     voicePreferences.remember({
       channel: inbound.channel,
       conversationId: inbound.conversationId,
@@ -74,7 +81,12 @@ export class SharedReportIngress {
       inputModality: "voice",
       ...(inbound.voice?.languageCode ? { languageCode: inbound.voice.languageCode } : {}),
     });
-    return { inbound, conversation: record.conversation, persisted };
+    const enrichedPersisted: PersistedMessage = persisted ?? {
+      ...record.persisted,
+      ...(inbound.voice ? { voice: inbound.voice } : {}),
+      ...(inbound.voiceTranscript ? { voiceTranscript: inbound.voiceTranscript } : {}),
+    };
+    return { inbound, conversation: record.conversation, persisted: enrichedPersisted };
   }
 
   async enrichVoiceDurably(record: ReportIngressRecord, inbound: InboundMessage, durableStore: ConvexReportStore): Promise<ReportIngressRecord> {
@@ -127,12 +139,17 @@ export class SharedReportIngress {
       }
       lines.push("The video observation is the visible content of that video. A video counts as the required photo evidence when the observation shows the reported issue.");
     }
-    if (persisted.voice) {
-      lines.push(`input_modality: voice`);
-      lines.push(`voice_transcription_status: ${persisted.voice.status}`);
-      lines.push(`voice_attachment_id: ${persisted.voice.attachmentId}`);
-      if (persisted.voiceTranscript) {
-        lines.push(`voice_transcript: ${persisted.voiceTranscript}`);
+    const voice = inbound.voice ?? persisted.voice;
+    const voiceTranscript = inbound.voiceTranscript ?? persisted.voiceTranscript;
+    if (voice) {
+      lines.push("input_modality: voice");
+      lines.push(`voice_transcription_status: ${voice.status}`);
+      lines.push(`voice_attachment_id: ${voice.attachmentId}`);
+      if (voice.languageCode && !lines.some((line) => line.startsWith("response_language:"))) {
+        lines.push(`response_language: ${voice.languageCode}`);
+      }
+      if (voiceTranscript) {
+        lines.push(`voice_transcript: ${voiceTranscript}`);
         lines.push("Treat the voice transcript as the citizen's description; do not ask them to repeat it unless the transcript is marked unintelligible or language_unknown.");
       }
     } else {
