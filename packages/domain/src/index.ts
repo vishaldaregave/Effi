@@ -61,3 +61,7 @@ export type CivicCase = {
   reportIds: readonly ReportId[];
   assignedOfficerId?: OfficerId;
 };
+
+export * from "./geospatial";
+export * from "./datameet-wards";
+
