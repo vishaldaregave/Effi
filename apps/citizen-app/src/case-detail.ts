@@ -15,7 +15,17 @@ export type CitizenTimelineEntry = {
     | { kind: "assigned" }
     | { kind: "priority_changed"; from: CasePriority; to: CasePriority }
     | { kind: "status_changed"; from: CaseStatus; to: CaseStatus }
-    | { kind: "resolved"; from: "work_in_progress"; to: "resolved"; resolutionNote: string };
+    | { kind: "resolved"; from: "work_in_progress"; to: "resolved"; resolutionNote: string }
+    | {
+        kind: "resolution_submitted";
+        resolutionNote: string;
+        evidenceCount: number;
+        aiRecommendation?: string;
+      }
+    | { kind: "citizen_confirmed"; comment?: string }
+    | { kind: "citizen_disputed"; comment?: string }
+    | { kind: "case_reopened"; reason: string }
+    | { kind: "resolution_verified_by_officer"; reason: string };
 };
 
 export type CitizenEvidence = {
@@ -51,6 +61,16 @@ export function timelineEntryTitle(entry: CitizenTimelineEntry): string {
       return `Moved to ${caseStatusLabels[entry.event.to]}`;
     case "resolved":
       return "Issue resolved";
+    case "resolution_submitted":
+      return "Repair evidence submitted";
+    case "citizen_confirmed":
+      return "Resolution confirmed by you";
+    case "citizen_disputed":
+      return "Resolution disputed by you";
+    case "case_reopened":
+      return "Case reopened for rework";
+    case "resolution_verified_by_officer":
+      return "Resolution verified by officer";
     default: {
       const unhandled: never = entry.event;
       return unhandled;

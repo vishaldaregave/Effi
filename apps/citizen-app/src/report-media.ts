@@ -18,9 +18,14 @@ const fallbackExtension = (kind: ReportMediaKind): string =>
 
 export const selectedReportMedia = (
   asset: ImagePickerAsset,
+  fallbackSizeBytes?: number,
 ): SelectedReportMedia => {
   const kind: ReportMediaKind = asset.type === "video" ? "video" : "image";
-  const sizeBytes = asset.fileSize ?? 0;
+  const sizeBytes =
+    asset.fileSize ??
+    (asset as { file?: { size?: number } }).file?.size ??
+    fallbackSizeBytes ??
+    0;
   if (sizeBytes <= 0) throw new Error("This file's size could not be read.");
   const maxBytes =
     kind === "image" ? MAX_REPORT_IMAGE_BYTES : MAX_REPORT_VIDEO_BYTES;

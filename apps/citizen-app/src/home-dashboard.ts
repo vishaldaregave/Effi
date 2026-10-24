@@ -38,6 +38,8 @@ export function countHomeOverview(cases: readonly CitizenCaseSummary[]): HomeOve
         break;
       case "under_inspection":
       case "work_in_progress":
+      case "awaiting_confirmation":
+      case "disputed":
         overview.inProgress += 1;
         break;
       case "resolved":

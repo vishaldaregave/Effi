@@ -8,7 +8,13 @@ import {
 
 type DeepgramTranscribeFile = (
   audio: { data: Buffer; contentType: string },
-  options: { model: "nova-3"; detect_language: true; smart_format: true; punctuate: true },
+  options: {
+    model: "nova-3";
+    smart_format: true;
+    punctuate: true;
+    language?: string;
+    detect_language?: boolean;
+  },
 ) => Promise<unknown>;
 
 export type DeepgramVoiceProviderOptions = {
@@ -40,15 +46,34 @@ export class DeepgramVoiceProvider {
       const client = new DeepgramClient({ apiKey: this.#apiKey });
       return client.listen.v1.media.transcribeFile(audio, options);
     });
+
+    const requestedLanguage = input.languageCode
+      ? (input.languageCode.split("-", 1)[0]?.toLowerCase() ?? input.languageCode.toLowerCase())
+      : undefined;
+    const options = requestedLanguage && requestedLanguage !== "auto"
+      ? { model: "nova-3" as const, language: requestedLanguage, smart_format: true as const, punctuate: true as const }
+      : { model: "nova-3" as const, language: "multi", smart_format: true as const, punctuate: true as const };
+
     const response = asRecord(await transcribeFile(
       { data: Buffer.from(input.data), contentType: input.mediaType },
-      { model: "nova-3", detect_language: true, smart_format: true, punctuate: true },
+      options,
     ));
     const channel = asRecord(firstItem(asRecord(response?.results)?.channels));
     const alternative = asRecord(firstItem(channel?.alternatives));
     const transcript = typeof alternative?.transcript === "string" ? alternative.transcript.trim() : "";
     if (!transcript) return { status: "unintelligible" };
-    const languageCode = normalizeLanguageCode(channel?.detected_language) ?? detectTextLanguage(transcript);
+
+    const detectedLang = typeof channel?.detected_language === "string" ? channel.detected_language : undefined;
+    const alternativeLangs = Array.isArray(alternative?.languages) ? alternative.languages : [];
+    const firstAltLang = typeof alternativeLangs[0] === "string" ? alternativeLangs[0] : undefined;
+    const rawLang = detectedLang ?? firstAltLang ?? (requestedLanguage && requestedLanguage !== "auto" ? requestedLanguage : undefined);
+    const normalized = normalizeLanguageCode(rawLang);
+
+    const textLang = detectTextLanguage(transcript);
+    const languageCode = (normalized === "hi-IN" && textLang === "mr-IN")
+      ? "mr-IN"
+      : (normalized ?? textLang);
+
     return { status: "transcribed", transcript, languageCode };
   }
 }

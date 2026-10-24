@@ -54,17 +54,22 @@ export function OfficerAuth() {
         await finishSignIn();
         return;
       }
-      if (signIn.status === "needs_second_factor") {
+      if (signIn.status === "needs_second_factor" || (signIn.status as string) === "needs_client_trust") {
         const supportsEmailCode = signIn.supportedSecondFactors.some((factor) => factor.strategy === "email_code");
         if (!supportsEmailCode) {
-          setMessage("This account needs a second factor that is not available on this screen. Contact your Effi administrator.");
+          setMessage("This account needs a verification factor that is not available on this screen. Contact your Effi administrator.");
           return;
         }
         const { error: codeError } = await signIn.mfa.sendEmailCode();
-        if (!codeError) setView({ kind: "verify-sign-in", emailAddress: normalizedEmail });
+        if (codeError) {
+          setMessage(codeError.message);
+          return;
+        }
+        setView({ kind: "verify-sign-in", emailAddress: normalizedEmail });
         return;
       }
-      setMessage("Clerk needs another sign-in step that this officer screen does not support yet.");
+      console.error("Clerk sign-in status:", signIn.status, signIn);
+      setMessage(`Clerk requires step: ${signIn.status}`);
       return;
     }
 
@@ -92,7 +97,11 @@ export function OfficerAuth() {
     }
     if (view.kind === "verify-sign-in") {
       const { error } = await signIn.mfa.verifyEmailCode({ code });
-      if (!error && signIn.status === "complete") await finishSignIn();
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+      if (signIn.status === "complete") await finishSignIn();
     }
   };
 

@@ -4,15 +4,19 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
+  acceptedEvidenceValidator,
+  aiEvidenceAssessmentValidator,
   caseAuditEventValidator,
   channelValidator,
   caseStatusValidator,
   caseTranscriptContentValidator,
+  citizenConfirmationResponseValidator,
   exactLocationValidator,
   issueCategoryValidator,
   priorityValidator,
   sourceCitationValidator,
 } from "./case_contract";
+import { assessResolutionEvidence } from "./resolution_assurance";
 
 const maxInboxCases = 50;
 
@@ -209,6 +213,27 @@ export const getCase = query({
       assignment: v.union(v.object({ officerName: v.string() }), v.null()),
       repostCount: v.number(),
       canAct: v.boolean(),
+      latestResolution: v.optional(
+        v.object({
+          resolutionId: v.id("caseResolutions"),
+          officerName: v.string(),
+          resolutionNote: v.string(),
+          submittedAt: v.number(),
+          evidence: v.array(
+            v.object({
+              attachmentId: v.string(),
+              mediaType: v.string(),
+              storageId: v.optional(v.id("_storage")),
+              storageKey: v.string(),
+              sourceMessageId: v.string(),
+              url: v.union(v.string(), v.null()),
+            }),
+          ),
+          location: v.optional(exactLocationValidator),
+          aiAssessment: v.optional(aiEvidenceAssessmentValidator),
+          citizenConfirmation: v.optional(citizenConfirmationResponseValidator),
+        }),
+      ),
     }),
     transcript: v.array(v.object({
       sourceMessageId: v.string(),
@@ -239,6 +264,71 @@ export const getCase = query({
       ...evidence,
       url: evidence.storageId ? await ctx.storage.getUrl(evidence.storageId) : null,
     })));
+
+    let latestResolution: {
+      resolutionId: Id<"caseResolutions">;
+      officerName: string;
+      resolutionNote: string;
+      submittedAt: number;
+      location?: {
+        source: "current_gps" | "selected_pin";
+        latitude: number;
+        longitude: number;
+        place?: { name: string; formattedAddress: string };
+      };
+      evidence: Array<{
+        attachmentId: string;
+        mediaType: string;
+        storageId?: Id<"_storage">;
+        storageKey: string;
+        sourceMessageId: string;
+        url: string | null;
+      }>;
+      aiAssessment?: {
+        recommendation: "supports_resolution" | "requires_review" | "insufficient_evidence" | "resolution_disputed";
+        reasons: string[];
+        evidenceReferences: string[];
+        uncertainty: number;
+        assessedAt: number;
+        provider: string;
+        manualReviewRequired: boolean;
+      };
+      citizenConfirmation?: {
+        verdict: "confirmed" | "disputed";
+        respondedAt: number;
+        comment?: string;
+        evidence?: Array<{
+          attachmentId: string;
+          storageKey: string;
+          storageId?: Id<"_storage">;
+          mediaType: string;
+          sourceMessageId: string;
+        }>;
+      };
+    } | undefined = undefined;
+
+    if (record.latestResolutionId) {
+      const res = await ctx.db.get(record.latestResolutionId);
+      if (res) {
+        const resolutionEvidence = await Promise.all(
+          res.evidence.map(async (ev) => ({
+            ...ev,
+            url: ev.storageId ? await ctx.storage.getUrl(ev.storageId) : null,
+          })),
+        );
+        latestResolution = {
+          resolutionId: res._id,
+          officerName: res.officerName,
+          resolutionNote: res.resolutionNote,
+          submittedAt: res.submittedAt,
+          evidence: resolutionEvidence,
+          location: res.location,
+          aiAssessment: res.aiAssessment,
+          citizenConfirmation: res.citizenConfirmation,
+        };
+      }
+    }
+
     return {
       case: {
         reportNumber: record.reportNumber,
@@ -264,6 +354,7 @@ export const getCase = query({
           && record.assignedOfficerId
           && (actor.role === "admin" || record.assignedOfficerId === actor._id),
         ),
+        latestResolution,
       },
       transcript: transcript.map((message) => ({
         sourceMessageId: message.sourceMessageId,
@@ -342,7 +433,13 @@ export const advanceCaseStatus = mutation({
     caseId: v.id("cases"),
     action: v.union(
       v.object({ kind: v.literal("advance") }),
-      v.object({ kind: v.literal("resolve"), resolutionNote: v.string() }),
+      v.object({
+        kind: v.literal("resolve"),
+        resolutionNote: v.string(),
+        evidence: v.optional(v.array(acceptedEvidenceValidator)),
+        location: v.optional(exactLocationValidator),
+        directVerify: v.optional(v.boolean()),
+      }),
     ),
   },
   returns: v.object({ status: caseStatusValidator }),
@@ -351,22 +448,70 @@ export const advanceCaseStatus = mutation({
     const nextStatus = nextCaseStatus(record.status);
     if (!nextStatus || nextStatus === "assigned") throw new Error("This case cannot advance from its current status.");
     const occurredAt = Date.now();
-    if (nextStatus === "resolved") {
-      if (args.action.kind !== "resolve") throw new Error("A resolution note is required to resolve this case.");
+    if (args.action.kind === "resolve") {
       const resolutionNote = args.action.resolutionNote.trim();
       if (!resolutionNote || resolutionNote.length > maxResolutionNoteLength) {
         throw new Error(`The resolution note must contain between 1 and ${maxResolutionNoteLength} characters.`);
       }
-      await ctx.db.patch(record._id, { status: nextStatus });
+
+      if (args.action.directVerify === true || (!args.action.evidence?.length && args.action.directVerify !== false)) {
+        await ctx.db.patch(record._id, { status: "resolved" });
+        await ctx.db.insert("caseAuditEvents", {
+          caseId: record._id,
+          actorIdentityId: actor._id,
+          actorName,
+          occurredAt,
+          event: { kind: "case_resolved", from: record.status as "work_in_progress", to: "resolved", resolutionNote },
+        });
+        return { status: "resolved" as const };
+      }
+
+      const assessment = await assessResolutionEvidence({
+        category: record.category,
+        summary: record.summary,
+        resolutionNote,
+        originalEvidence: record.acceptedEvidence,
+        completionEvidence: args.action.evidence ?? [],
+        originalLocation: { latitude: record.location.latitude, longitude: record.location.longitude },
+        completionLocation: args.action.location
+          ? { latitude: args.action.location.latitude, longitude: args.action.location.longitude }
+          : undefined,
+      });
+
+      const resolutionId = await ctx.db.insert("caseResolutions", {
+        caseId: record._id,
+        officerId: actor._id,
+        officerName: actorName,
+        resolutionNote,
+        evidence: args.action.evidence ?? [],
+        location: args.action.location,
+        submittedAt: occurredAt,
+        aiAssessment: assessment,
+      });
+
+      await ctx.db.patch(record._id, {
+        status: "awaiting_confirmation",
+        latestResolutionId: resolutionId,
+      });
+
       await ctx.db.insert("caseAuditEvents", {
         caseId: record._id,
         actorIdentityId: actor._id,
         actorName,
         occurredAt,
-        event: { kind: "case_resolved", from: "work_in_progress", to: "resolved", resolutionNote },
+        event: {
+          kind: "resolution_submitted",
+          from: record.status,
+          to: "awaiting_confirmation",
+          resolutionNote,
+          evidenceCount: args.action.evidence?.length ?? 0,
+          aiRecommendation: assessment.recommendation,
+        },
       });
-      return { status: nextStatus };
+
+      return { status: "awaiting_confirmation" as const };
     }
+
     if (args.action.kind !== "advance") throw new Error("A resolution note is only accepted when resolving a case.");
     await ctx.db.patch(record._id, { status: nextStatus });
     await ctx.db.insert("caseAuditEvents", {
@@ -379,3 +524,188 @@ export const advanceCaseStatus = mutation({
     return { status: nextStatus };
   },
 });
+
+export const generateResolutionMediaUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await requireOfficer(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const submitResolution = mutation({
+  args: {
+    caseId: v.id("cases"),
+    resolutionNote: v.string(),
+    evidence: v.array(acceptedEvidenceValidator),
+    location: v.optional(exactLocationValidator),
+    directVerify: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    status: caseStatusValidator,
+    resolutionId: v.id("caseResolutions"),
+    aiAssessment: aiEvidenceAssessmentValidator,
+  }),
+  handler: async (ctx, args) => {
+    const { actor, actorName, record } = await requireAssignedActor(ctx, args.caseId);
+    if (record.status !== "work_in_progress" && record.status !== "disputed") {
+      throw new Error("Only cases in progress or disputed can be submitted for resolution.");
+    }
+
+    const resolutionNote = args.resolutionNote.trim();
+    if (!resolutionNote || resolutionNote.length > maxResolutionNoteLength) {
+      throw new Error(`The resolution note must contain between 1 and ${maxResolutionNoteLength} characters.`);
+    }
+
+    if (args.evidence.length > 5) {
+      throw new Error("A maximum of 5 completion evidence items can be submitted.");
+    }
+
+    for (const item of args.evidence) {
+      if (item.storageId) {
+        const stored = await ctx.db.system.get("_storage", item.storageId);
+        if (!stored) {
+          throw new Error("The completion evidence media could not be found.");
+        }
+      }
+    }
+
+    const assessment = await assessResolutionEvidence({
+      category: record.category,
+      summary: record.summary,
+      resolutionNote,
+      originalEvidence: record.acceptedEvidence,
+      completionEvidence: args.evidence,
+      originalLocation: { latitude: record.location.latitude, longitude: record.location.longitude },
+      completionLocation: args.location
+        ? { latitude: args.location.latitude, longitude: args.location.longitude }
+        : undefined,
+    });
+
+    const occurredAt = Date.now();
+    const resolutionId = await ctx.db.insert("caseResolutions", {
+      caseId: record._id,
+      officerId: actor._id,
+      officerName: actorName,
+      resolutionNote,
+      evidence: args.evidence,
+      location: args.location,
+      submittedAt: occurredAt,
+      aiAssessment: assessment,
+    });
+
+    const isDirectVerify = args.directVerify === true && (actor.role === "admin" || assessment.recommendation === "supports_resolution");
+    const nextStatus = isDirectVerify ? "resolved" : "awaiting_confirmation";
+
+    await ctx.db.patch(record._id, {
+      status: nextStatus,
+      latestResolutionId: resolutionId,
+    });
+
+    if (isDirectVerify) {
+      await ctx.db.insert("caseAuditEvents", {
+        caseId: record._id,
+        actorIdentityId: actor._id,
+        actorName,
+        occurredAt,
+        event: {
+          kind: "resolution_verified_by_officer",
+          from: record.status,
+          to: "resolved",
+          reason: resolutionNote,
+        },
+      });
+    } else {
+      await ctx.db.insert("caseAuditEvents", {
+        caseId: record._id,
+        actorIdentityId: actor._id,
+        actorName,
+        occurredAt,
+        event: {
+          kind: "resolution_submitted",
+          from: record.status,
+          to: "awaiting_confirmation",
+          resolutionNote,
+          evidenceCount: args.evidence.length,
+          aiRecommendation: assessment.recommendation,
+        },
+      });
+    }
+
+    return {
+      status: nextStatus,
+      resolutionId,
+      aiAssessment: assessment,
+    };
+  },
+});
+
+export const reopenCase = mutation({
+  args: {
+    caseId: v.id("cases"),
+    reason: v.string(),
+    targetStatus: v.optional(v.union(v.literal("work_in_progress"), v.literal("under_inspection"))),
+  },
+  returns: v.object({ status: caseStatusValidator }),
+  handler: async (ctx, args) => {
+    const { actor, actorName, record } = await requireAssignedActor(ctx, args.caseId);
+    if (record.status !== "disputed") {
+      throw new Error("Only disputed cases can be reopened.");
+    }
+    const reason = args.reason.trim();
+    if (!reason || reason.length > maxResolutionNoteLength) {
+      throw new Error(`Reopening requires a reason between 1 and ${maxResolutionNoteLength} characters.`);
+    }
+    const targetStatus = args.targetStatus ?? "work_in_progress";
+    const occurredAt = Date.now();
+    await ctx.db.patch(record._id, { status: targetStatus });
+    await ctx.db.insert("caseAuditEvents", {
+      caseId: record._id,
+      actorIdentityId: actor._id,
+      actorName,
+      occurredAt,
+      event: {
+        kind: "case_reopened",
+        from: "disputed",
+        to: targetStatus,
+        reason,
+      },
+    });
+    return { status: targetStatus };
+  },
+});
+
+export const verifyResolution = mutation({
+  args: {
+    caseId: v.id("cases"),
+    reason: v.string(),
+  },
+  returns: v.object({ status: v.literal("resolved") }),
+  handler: async (ctx, args) => {
+    const { actor, actorName, record } = await requireAssignedActor(ctx, args.caseId);
+    if (record.status !== "awaiting_confirmation" && record.status !== "disputed" && record.status !== "work_in_progress") {
+      throw new Error("Only cases awaiting confirmation, disputed, or in progress can be verified.");
+    }
+    const reason = args.reason.trim();
+    if (!reason || reason.length > maxResolutionNoteLength) {
+      throw new Error(`Verification requires a reason between 1 and ${maxResolutionNoteLength} characters.`);
+    }
+    const occurredAt = Date.now();
+    await ctx.db.patch(record._id, { status: "resolved" });
+    await ctx.db.insert("caseAuditEvents", {
+      caseId: record._id,
+      actorIdentityId: actor._id,
+      actorName,
+      occurredAt,
+      event: {
+        kind: "resolution_verified_by_officer",
+        from: record.status,
+        to: "resolved",
+        reason,
+      },
+    });
+    return { status: "resolved" as const };
+  },
+});
+

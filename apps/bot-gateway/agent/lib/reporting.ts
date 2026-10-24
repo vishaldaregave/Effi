@@ -32,17 +32,18 @@ const conversationForAuth = (auth: unknown): ReportConversation | undefined => {
   if (!auth || !isRecord(auth) || !isRecord(auth.attributes)) return undefined;
   if (
     auth.authenticator === "telegram-webhook" &&
-    typeof auth.attributes.chat_id === "string"
+    (typeof auth.attributes.chat_id === "string" || typeof auth.attributes.chat_id === "number")
   ) {
+    const chatId = String(auth.attributes.chat_id);
     const threadId =
-      typeof auth.attributes.message_thread_id === "string"
-        ? auth.attributes.message_thread_id
+      typeof auth.attributes.message_thread_id === "string" || typeof auth.attributes.message_thread_id === "number"
+        ? String(auth.attributes.message_thread_id)
         : undefined;
     return {
       channel: "telegram",
       conversationId: threadId
-        ? `${auth.attributes.chat_id}:${threadId}`
-        : auth.attributes.chat_id,
+        ? `${chatId}:${threadId}`
+        : chatId,
     };
   }
   if (
@@ -77,13 +78,14 @@ export const reportConversationFromAuth = (
 ): ReportConversation | undefined =>
   conversationForAuth(auth.initiator) ?? conversationForAuth(auth.current);
 
-export const reportStore = new SimulatedReportStore(
+const globalReporting = globalThis as unknown as { __effi_report_store?: SimulatedReportStore };
+export const reportStore = (globalReporting.__effi_report_store ??= new SimulatedReportStore(
   () => new Date().toISOString(),
   {
     authenticationBaseUrl,
     tokenFactory: () => randomBytes(24).toString("base64url"),
   },
-);
+));
 
 export const reportIngress = new SharedReportIngress(reportStore);
 

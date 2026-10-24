@@ -9,6 +9,11 @@
 **/coverage
 **/android
 **/ios
+*.apk
+*.aab
+apps/citizen-app/
+apps/bot-gateway/
+scratch/
 .scratch
 .code-review-graph
 .impeccable
@@ -18,3 +23,4 @@
 .DS_Store
 .env
 .env.*.local
+

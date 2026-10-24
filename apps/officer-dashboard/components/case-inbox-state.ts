@@ -1,4 +1,12 @@
-export const caseStatuses = ["new", "assigned", "under_inspection", "work_in_progress", "resolved"] as const;
+export const caseStatuses = [
+  "new",
+  "assigned",
+  "under_inspection",
+  "work_in_progress",
+  "awaiting_confirmation",
+  "resolved",
+  "disputed",
+] as const;
 export const casePriorities = ["critical", "high", "medium", "low"] as const;
 export const caseCategories = ["roads", "sanitation", "water", "lighting", "drainage", "other"] as const;
 export const caseChannels = ["telegram", "whatsapp", "app"] as const;
@@ -25,7 +33,9 @@ export const caseStatusLabels: Record<CaseStatus, string> = {
   assigned: "Assigned",
   under_inspection: "Under inspection",
   work_in_progress: "In progress",
+  awaiting_confirmation: "Awaiting confirmation",
   resolved: "Resolved",
+  disputed: "Disputed",
 };
 
 export const casePriorityLabels: Record<CasePriority, string> = {

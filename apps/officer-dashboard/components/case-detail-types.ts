@@ -54,11 +54,55 @@ export type CaseTranscriptMessage = {
   content: TranscriptContent;
 };
 
+export type ResolutionRecommendation =
+  | "supports_resolution"
+  | "requires_review"
+  | "insufficient_evidence"
+  | "resolution_disputed";
+
+export type AiEvidenceAssessment = {
+  recommendation: ResolutionRecommendation;
+  confidence: number;
+  reasons: string[];
+  provider: string;
+  manualReviewRequired: boolean;
+  assessedAt: number;
+};
+
+export type CitizenConfirmation = {
+  verdict: "confirmed" | "disputed";
+  respondedAt: number;
+  comment?: string;
+};
+
+export type CaseResolution = {
+  resolutionId: string;
+  officerName: string;
+  resolutionNote: string;
+  submittedAt: number;
+  evidence: CaseEvidence[];
+  location?: CaseLocation;
+  aiAssessment: AiEvidenceAssessment;
+  citizenConfirmation?: CitizenConfirmation;
+};
+
 export type CaseAuditEvent =
   | { kind: "case_assigned"; assignedOfficerId: string; assignedOfficerName?: string }
   | { kind: "priority_changed"; from: CasePriority; to: CasePriority }
   | { kind: "status_changed"; from: CaseStatus; to: CaseStatus }
-  | { kind: "case_resolved"; from: "work_in_progress"; to: "resolved"; resolutionNote: string };
+  | { kind: "case_resolved"; from: "work_in_progress"; to: "resolved"; resolutionNote: string }
+  | {
+      kind: "resolution_submitted";
+      from: CaseStatus;
+      to: "awaiting_confirmation" | "resolved";
+      resolutionNote: string;
+      evidenceCount: number;
+      aiRecommendation?: ResolutionRecommendation;
+    }
+  | { kind: "citizen_confirmed"; from: "awaiting_confirmation"; to: "resolved"; comment?: string }
+  | { kind: "citizen_disputed"; from: "awaiting_confirmation"; to: "disputed"; comment?: string }
+  | { kind: "case_reopened"; from: "disputed"; to: CaseStatus; reason: string }
+  | { kind: "resolution_verified_by_officer"; from: CaseStatus; to: "resolved"; reason: string };
 
 export type CaseAuditEntry = {
   eventId: string;
@@ -86,6 +130,7 @@ export type CaseDetail = {
     assignment: { officerName: string } | null;
     repostCount: number;
     canAct: boolean;
+    latestResolution?: CaseResolution | null;
   };
   transcript: CaseTranscriptMessage[];
   audit: CaseAuditEntry[];

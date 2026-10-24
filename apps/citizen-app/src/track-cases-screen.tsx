@@ -72,7 +72,7 @@ export function TrackCasesScreen() {
             </CardHeader>
             <CardContent style={styles.emptyActions}>
               <Text variant="caption">Submit an issue and track its progress here.</Text>
-              <Button icon={FilePlus2} onPress={() => router.push("/report")}>Report an issue</Button>
+              <Button icon={FilePlus2} onPress={() => router.push("/main/report")}>Report an issue</Button>
             </CardContent>
           </Card>
         )}

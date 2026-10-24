@@ -38,6 +38,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -47,8 +48,8 @@ import {
   Pressable,
   StyleSheet,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { botGatewayConfig } from "@/bot-gateway-config";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { botGatewayConfig, resolveDevHost } from "@/bot-gateway-config";
 import { EffiMark } from "@/components/effi-mark";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -60,9 +61,24 @@ import {
   type ReportMediaKind,
 } from "@/report-media";
 
+import {
+  MicTriggerButton,
+  VoiceRecorderBar,
+  type VoiceTranscriptionPayload,
+} from "@/components/voice-recorder-bar";
+import { SpeechPlaybackButton } from "@/components/speech-playback-button";
+import {
+  detectTextLanguage,
+  type PreferredResponseLanguage,
+  type SupportedLanguageCode,
+} from "@/services/voice-service";
+
 const OPENING_MESSAGE =
   "Hi, I'm Effi. Tell me what happened, and I'll help you report it.";
-const gateway = botGatewayConfig(process.env.EXPO_PUBLIC_EFFI_BOT_GATEWAY_URL);
+const gateway = botGatewayConfig(
+  process.env.EXPO_PUBLIC_EFFI_BOT_GATEWAY_URL ||
+    "https://slow-invoice-meaningful-switched.trycloudflare.com",
+);
 
 type RegisterMediaArgs = {
   storageId: string;
@@ -113,8 +129,16 @@ type SubmittedReport = {
 };
 
 type ReportFlowContextValue = {
+  gatewayHost: string;
+  token?: string | null | undefined;
   location: CapturedLocation | null;
   setLocation: (location: CapturedLocation | null) => void;
+  onPickMedia?: (() => void) | undefined;
+  setOnPickMedia?: ((fn: (() => void) | undefined) => void) | undefined;
+  preferredLanguage: PreferredResponseLanguage;
+  setPreferredLanguage: (lang: PreferredResponseLanguage) => void;
+  detectedLanguage: string | null;
+  setDetectedLanguage: (lang: string | null) => void;
 };
 
 const ReportFlowContext = createContext<ReportFlowContextValue | null>(null);
@@ -287,6 +311,7 @@ function GenericQuestionCard({
   approval,
   respondToApproval,
 }: ToolCallMessagePartProps<AskQuestionArgs, unknown>) {
+  const { onPickMedia } = useReportFlow();
   const [isAnswering, setIsAnswering] = useState(false);
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");
@@ -307,27 +332,42 @@ function GenericQuestionCard({
       </Text>
       {pending && args.options?.length ? (
         <View style={styles.questionOptions}>
-          {args.options.map((option) => (
-            <Pressable
-              accessibilityRole="button"
-              disabled={isAnswering}
-              key={option.id}
-              onPress={() => {
-                setIsAnswering(true);
-                void respondToApproval({ optionId: option.id }).finally(() =>
-                  setIsAnswering(false),
-                );
-              }}
-              style={({ pressed }) => [
-                styles.questionOption,
-                { backgroundColor: blueTint, opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <Text style={[styles.questionOptionText, { color: blue }]}>
-                {option.label ?? option.id}
-              </Text>
-            </Pressable>
-          ))}
+          {args.options.map((option) => {
+            const isMediaAction =
+              option.id === "share_media" ||
+              option.id === "upload_photo" ||
+              option.id === "share_photo" ||
+              option.id === "attach_photo" ||
+              option.label?.toLowerCase().includes("upload photo") ||
+              option.label?.toLowerCase().includes("share photo");
+
+            return (
+              <Pressable
+                accessibilityRole="button"
+                disabled={isAnswering}
+                key={option.id}
+                onPress={() => {
+                  if (isMediaAction && onPickMedia) {
+                    onPickMedia();
+                    return;
+                  }
+                  setIsAnswering(true);
+                  void respondToApproval({
+                    approved: true,
+                    optionId: option.id,
+                  }).finally(() => setIsAnswering(false));
+                }}
+                style={({ pressed }) => [
+                  styles.questionOption,
+                  { backgroundColor: blueTint, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.questionOptionText, { color: blue }]}>
+                  {option.label ?? option.id}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -667,6 +707,7 @@ function EffiHeader() {
 }
 
 function OpeningMessage() {
+  const { gatewayHost } = useReportFlow();
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");
   const foreground = useColor("foreground");
@@ -684,9 +725,15 @@ function OpeningMessage() {
             { backgroundColor: surface, borderColor: border },
           ]}
         >
-          <Text style={[styles.messageText, { color: foreground }]}>
-            {OPENING_MESSAGE}
-          </Text>
+          <View style={styles.assistantContentRow}>
+            <Text style={[styles.messageText, { color: foreground, flex: 1 }]}>
+              {OPENING_MESSAGE}
+            </Text>
+            <SpeechPlaybackButton
+              gatewayHost={gatewayHost}
+              text={OPENING_MESSAGE}
+            />
+          </View>
         </View>
         <Text style={[styles.messageMeta, { color: muted }]}>Now</Text>
       </View>
@@ -696,6 +743,7 @@ function OpeningMessage() {
 
 function ChatMessage() {
   const role = useAuiState((state) => state.message.role);
+  const { gatewayHost, preferredLanguage, detectedLanguage } = useReportFlow();
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");
   const foreground = useColor("foreground");
@@ -705,40 +753,62 @@ function ChatMessage() {
   if (role === "system") return null;
   const isUser = role === "user";
 
-  return (
-    <MessagePrimitive.Root
-      style={isUser ? styles.userRow : styles.assistantRow}
-    >
-      {!isUser ? (
-        <View style={styles.avatar}>
-          <EffiMark size={34} />
-        </View>
-      ) : null}
-      <View
-        style={[
-          isUser ? styles.userBubble : styles.assistantBubble,
-          isUser
-            ? { backgroundColor: blue }
-            : { backgroundColor: surface, borderColor: border },
-        ]}
-      >
-        {isUser ? (
+  if (isUser) {
+    return (
+      <MessagePrimitive.Root style={styles.userRow}>
+        <View style={[styles.userBubble, { backgroundColor: blue }]}>
           <MessagePrimitive.Attachments>
             {({ attachment }) => <MessageAttachment attachment={attachment} />}
           </MessagePrimitive.Attachments>
-        ) : null}
-        <MessagePrimitive.Content
-          renderText={({ part }) => (
-            <Text
-              style={[
-                styles.messageText,
-                { color: isUser ? white : foreground },
-              ]}
-            >
-              {part.text}
-            </Text>
-          )}
-        />
+          <MessagePrimitive.Content
+            renderText={({ part }) => (
+              <Text style={[styles.messageText, { color: white }]}>
+                {part.text}
+              </Text>
+            )}
+          />
+        </View>
+      </MessagePrimitive.Root>
+    );
+  }
+
+  const effectivePlaybackLanguage =
+    preferredLanguage !== "auto"
+      ? preferredLanguage
+      : (detectedLanguage || "hi-IN");
+
+  return (
+    <MessagePrimitive.Root style={styles.assistantRow}>
+      <View style={styles.avatar}>
+        <EffiMark size={34} />
+      </View>
+      <View style={styles.messageColumn}>
+        <View
+          style={[
+            styles.assistantBubble,
+            { backgroundColor: surface, borderColor: border },
+          ]}
+        >
+          <MessagePrimitive.Content
+            renderText={({ part }) => (
+              <View style={styles.assistantContentRow}>
+                <Text
+                  style={[
+                    styles.messageText,
+                    { color: foreground, flex: 1 },
+                  ]}
+                >
+                  {part.text}
+                </Text>
+                <SpeechPlaybackButton
+                  gatewayHost={gatewayHost}
+                  languageCode={effectivePlaybackLanguage}
+                  text={part.text}
+                />
+              </View>
+            )}
+          />
+        </View>
       </View>
     </MessagePrimitive.Root>
   );
@@ -747,16 +817,21 @@ function ChatMessage() {
 function attachmentUrl(attachment: {
   content?: readonly unknown[];
 }): string | undefined {
-  const part = attachment.content?.find(
-    (value): value is { type: "file"; data: string } =>
-      typeof value === "object" &&
-      value !== null &&
-      "type" in value &&
-      value.type === "file" &&
-      "data" in value &&
-      typeof value.data === "string",
-  );
-  return part?.data;
+  for (const value of attachment.content ?? []) {
+    if (typeof value === "object" && value !== null && "data" in value) {
+      const data = (value as { data: unknown }).data;
+      if (typeof data === "string") return data;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "url" in data &&
+        typeof (data as { url: unknown }).url === "string"
+      ) {
+        return (data as { url: string }).url;
+      }
+    }
+  }
+  return undefined;
 }
 
 function MessageAttachment({
@@ -832,17 +907,28 @@ function EveErrorNotice() {
       style={[styles.errorNotice, { backgroundColor: redSurface }]}
     >
       <Text style={[styles.errorText, { color: red }]}>
-        {"Effi couldn't reply. Check the bot gateway and try again."}
+        {error.message ||
+          "Effi couldn't reply. Check the bot gateway and try again."}
       </Text>
     </View>
   );
 }
 
 function ChatComposer() {
+  const {
+    gatewayHost,
+    token,
+    setOnPickMedia,
+    preferredLanguage,
+    setPreferredLanguage,
+    detectedLanguage,
+    setDetectedLanguage,
+  } = useReportFlow();
   const aui = useAui();
   const isRunning = useAuiState((state) => state.thread.isRunning);
-  const canSend = useAuiState((state) => state.composer.canSend);
+  const text = useAuiState((state) => state.composer.text);
   const attachments = useAuiState((state) => state.composer.attachments);
+  const hasContent = Boolean(text.trim().length > 0 || attachments.length > 0);
   const generateUploadUrl = useMutation(generateReportMediaUploadUrl);
   const registerMedia = useMutation(registerReportMedia);
   const [registeredMedia, setRegisteredMedia] = useState<
@@ -850,14 +936,30 @@ function ChatComposer() {
   >({});
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");
   const foreground = useColor("foreground");
   const muted = useColor("textMuted");
   const blue = useColor("submittedAccent");
+  const blueTint = useColor("submittedTint");
   const white = useColor("civicHeaderForeground");
   const red = useColor("red");
   const errorSurface = useColor("progressTint");
+
+  const handleVoiceTranscribed = useCallback(
+    (payload: VoiceTranscriptionPayload) => {
+      setVoiceError(null);
+      if (payload.detectedLanguage) {
+        setDetectedLanguage(payload.detectedLanguage);
+      }
+      const current = aui.composer.getState().text.trim();
+      const combined = current ? `${current} ${payload.originalTranscript}` : payload.originalTranscript;
+      aui.composer.setText(combined);
+    },
+    [aui, setDetectedLanguage],
+  );
 
   const pickMedia = useCallback(async () => {
     setUploadError(null);
@@ -871,31 +973,119 @@ function ChatComposer() {
 
     setIsUploading(true);
     try {
-      const selected = selectedReportMedia(result.assets[0]);
-      const uploadUrl = await generateUploadUrl({});
-      const localResponse = await fetch(selected.uri);
+      const asset = result.assets[0];
+      const localResponse = await fetch(asset.uri);
       if (!localResponse.ok)
         throw new Error("The selected file could not be read.");
       const blob = await localResponse.blob();
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "content-type": selected.mediaType },
-        body: blob,
-      });
-      if (!uploadResponse.ok) throw new Error("The media upload failed.");
-      const upload = (await uploadResponse.json()) as { storageId?: unknown };
-      if (typeof upload.storageId !== "string") {
-        throw new Error("The media upload returned an invalid response.");
+      const selected = selectedReportMedia(asset, blob.size);
+
+      const withTimeout = <T,>(p: Promise<T>, timeoutMs = 15000): Promise<T> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        return Promise.race([
+          p,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Convex backend is not responding. Ensure the Convex dev server is running.",
+                  ),
+                ),
+              timeoutMs,
+            );
+          }),
+        ]).finally(() => {
+          if (timer) clearTimeout(timer);
+        });
+      };
+
+      const rawUploadUrl = await withTimeout(generateUploadUrl({}));
+      const uploadUrl = resolveDevHost(rawUploadUrl) ?? rawUploadUrl;
+      const cleanContentType =
+        selected.mediaType.split(";")[0]?.trim() ||
+        (selected.kind === "image" ? "image/jpeg" : "video/mp4");
+
+      const isReactNative = Platform.OS !== "web";
+      let storageId: string;
+
+      if (isReactNative) {
+        storageId = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", uploadUrl);
+          xhr.setRequestHeader("Content-Type", cleanContentType);
+          xhr.timeout = 45000;
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const res = JSON.parse(xhr.responseText) as {
+                  storageId?: unknown;
+                };
+                if (typeof res.storageId === "string") {
+                  resolve(res.storageId);
+                  return;
+                }
+                reject(
+                  new Error("The media upload returned an invalid response."),
+                );
+              } catch {
+                reject(new Error("Failed to parse upload response."));
+              }
+            } else {
+              reject(
+                new Error(
+                  `The media upload failed with status ${xhr.status}${xhr.responseText ? `: ${xhr.responseText}` : ""}.`,
+                ),
+              );
+            }
+          };
+          xhr.onerror = () => {
+            reject(
+              new Error(
+                "Network error during media upload. Check your connection to the server.",
+              ),
+            );
+          };
+          xhr.ontimeout = () => {
+            reject(new Error("Media upload timed out after 45 seconds."));
+          };
+          // Stream directly from the local file URI in React Native native networking
+          xhr.send({ uri: asset.uri } as unknown as Document);
+        });
+      } else {
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": cleanContentType },
+          body: blob,
+        });
+        if (!uploadResponse.ok) {
+          let errText = "";
+          try {
+            errText = await uploadResponse.text();
+          } catch {
+            // Ignore
+          }
+          throw new Error(
+            `The media upload failed with status ${uploadResponse.status}${errText ? `: ${errText}` : ""}.`,
+          );
+        }
+        const upload = (await uploadResponse.json()) as { storageId?: unknown };
+        if (typeof upload.storageId !== "string") {
+          throw new Error("The media upload returned an invalid response.");
+        }
+        storageId = upload.storageId;
       }
       const assessmentKey = randomUUID();
-      const registered = await registerMedia({
-        storageId: upload.storageId,
-        kind: selected.kind,
-        mediaType: selected.mediaType,
-        fileName: selected.fileName,
-        sizeBytes: selected.sizeBytes,
-        assessmentKey,
-      });
+      const registered = await withTimeout(
+        registerMedia({
+          storageId: storageId as any,
+          kind: selected.kind,
+          mediaType: selected.mediaType,
+          fileName: selected.fileName,
+          sizeBytes: selected.sizeBytes,
+          assessmentKey,
+        }),
+      );
       await aui.composer.addAttachment({
         id: registered.mediaId,
         type: selected.kind,
@@ -905,11 +1095,11 @@ function ChatComposer() {
           selected.kind === "image"
             ? [
                 {
-                  type: "file",
-                  data: registered.url,
-                  mimeType: selected.mediaType,
-                  filename: selected.fileName,
-                  sourceType: "url",
+                  type: "data",
+                  name: "effi_media_preview",
+                  data: {
+                    url: registered.url,
+                  },
                 },
               ]
             : [],
@@ -930,6 +1120,10 @@ function ChatComposer() {
     }
   }, [aui, generateUploadUrl, registerMedia]);
 
+  useEffect(() => {
+    setOnPickMedia?.(() => () => void pickMedia());
+  }, [pickMedia, setOnPickMedia]);
+
   const removeAttachment = useCallback(
     async (attachmentId: string) => {
       await aui.composer.attachment({ id: attachmentId }).remove();
@@ -943,25 +1137,53 @@ function ChatComposer() {
   );
 
   const send = useCallback(() => {
+    const currentText = aui.composer.getState().text.trim();
+    if (!currentText && attachments.length === 0) return;
+
+    if (!currentText && attachments.length > 0) {
+      aui.composer.setText("Attached media for this report.");
+    }
+
     const media = attachments.flatMap((attachment) => {
       const registered = registeredMedia[attachment.id];
       return registered ? [registered] : [];
     });
+    const textLanguage = currentText ? detectTextLanguage(currentText) : undefined;
+    if (textLanguage && preferredLanguage === "auto") {
+      setDetectedLanguage(textLanguage);
+    }
+    const resolvedLanguage =
+      preferredLanguage !== "auto"
+        ? preferredLanguage
+        : (textLanguage ?? detectedLanguage ?? undefined);
+
     aui.composer.setRunConfig({
       custom: {
         effi_app: true,
+        ...(resolvedLanguage
+          ? {
+              response_language: resolvedLanguage,
+              preferred_language: resolvedLanguage,
+            }
+          : {}),
         ...(media.length > 0 ? { effi_app_media: media } : {}),
       },
     });
     aui.composer.send();
     setRegisteredMedia({});
-  }, [attachments, aui, registeredMedia]);
+  }, [attachments, aui, detectedLanguage, preferredLanguage, registeredMedia, setDetectedLanguage]);
+
+  const insets = useSafeAreaInsets();
 
   return (
     <View
       style={[
         styles.composerDock,
-        { backgroundColor: surface, borderTopColor: border },
+        {
+          backgroundColor: surface,
+          borderTopColor: border,
+          paddingBottom: Math.max(insets.bottom, 10),
+        },
       ]}
     >
       <EveErrorNotice />
@@ -971,6 +1193,27 @@ function ChatComposer() {
           style={[styles.errorNotice, { backgroundColor: errorSurface }]}
         >
           <Text style={[styles.errorText, { color: red }]}>{uploadError}</Text>
+        </View>
+      ) : null}
+      {voiceError ? (
+        <View
+          accessibilityRole="alert"
+          style={[
+            styles.errorNotice,
+            {
+              backgroundColor: errorSurface,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            },
+          ]}
+        >
+          <Text style={[styles.errorText, { color: red, flex: 1 }]}>
+            {voiceError}
+          </Text>
+          <Pressable hitSlop={8} onPress={() => setVoiceError(null)}>
+            <X color={red} size={16} strokeWidth={2.4} />
+          </Pressable>
         </View>
       ) : null}
       {attachments.length > 0 ? (
@@ -1025,67 +1268,149 @@ function ChatComposer() {
           </ComposerPrimitive.Attachments>
         </View>
       ) : null}
-      <ComposerPrimitive.Root
-        style={[styles.composer, { borderColor: border }]}
-      >
-        <Pressable
-          accessibilityLabel="Attach image or video"
-          accessibilityRole="button"
-          disabled={isUploading || isRunning}
-          hitSlop={6}
-          onPress={() => void pickMedia()}
-          style={({ pressed }) => [
-            styles.attachButton,
-            { opacity: pressed || isUploading || isRunning ? 0.45 : 1 },
-          ]}
-        >
-          {isUploading ? (
-            <Spinner color={blue} size="sm" variant="circle" />
-          ) : (
-            <ImagePlus color={blue} size={23} strokeWidth={2.2} />
-          )}
-        </Pressable>
-        <ComposerPrimitive.Input
-          accessibilityLabel="Message Effi"
-          multiline
-          placeholder="Describe the problem..."
-          placeholderTextColor={muted}
-          style={[styles.composerInput, { color: foreground }]}
+      <View style={styles.languageBar}>
+        <View style={styles.languageOptions}>
+          {[
+            { id: "auto", label: "Auto" },
+            { id: "mr-IN", label: "मराठी" },
+            { id: "hi-IN", label: "हिंदी" },
+            { id: "en-IN", label: "English" },
+          ].map((lang) => {
+            const isActive = preferredLanguage === lang.id;
+            return (
+              <Pressable
+                key={lang.id}
+                accessibilityLabel={`Set preferred language to ${lang.label}`}
+                accessibilityRole="button"
+                onPress={() =>
+                  setPreferredLanguage(lang.id as PreferredResponseLanguage)
+                }
+                style={[
+                  styles.languagePill,
+                  {
+                    backgroundColor: isActive ? blue : "transparent",
+                    borderColor: isActive ? blue : border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.languagePillText,
+                    {
+                      color: isActive ? white : muted,
+                      fontWeight: isActive ? "700" : "500",
+                    },
+                  ]}
+                >
+                  {lang.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {preferredLanguage === "auto" && detectedLanguage ? (
+          <View style={[styles.detectedBadge, { backgroundColor: blueTint }]}>
+            <Text style={[styles.detectedBadgeText, { color: blue }]}>
+              Detected:{" "}
+              {detectedLanguage === "mr-IN"
+                ? "मराठी"
+                : detectedLanguage === "hi-IN"
+                  ? "हिंदी"
+                  : "English"}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {isVoiceRecording ? (
+        <VoiceRecorderBar
+          gatewayHost={gatewayHost}
+          onClose={() => setIsVoiceRecording(false)}
+          onError={(err) => setVoiceError(err)}
+          onTranscribed={handleVoiceTranscribed}
+          token={token}
         />
-        {isRunning ? (
-          <ComposerPrimitive.Cancel
-            accessibilityLabel="Stop Effi"
-            style={({ pressed }) => [
-              styles.sendButton,
-              { backgroundColor: blue, opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <X color={white} size={22} strokeWidth={2.5} />
-          </ComposerPrimitive.Cancel>
-        ) : (
+      ) : (
+        <ComposerPrimitive.Root
+          style={[styles.composer, { borderColor: border }]}
+        >
           <Pressable
-            accessibilityLabel="Send message"
+            accessibilityLabel="Attach image or video"
             accessibilityRole="button"
-            disabled={!canSend || isUploading}
-            onPress={send}
+            disabled={isUploading || isRunning}
+            hitSlop={6}
+            onPress={() => void pickMedia()}
             style={({ pressed }) => [
-              styles.sendButton,
-              {
-                backgroundColor: blue,
-                opacity: pressed || !canSend || isUploading ? 0.45 : 1,
-              },
+              styles.attachButton,
+              { opacity: pressed || isUploading || isRunning ? 0.45 : 1 },
             ]}
           >
-            <Send color={white} size={21} strokeWidth={2.4} />
+            {isUploading ? (
+              <Spinner color={blue} size="sm" variant="circle" />
+            ) : (
+              <ImagePlus color={blue} size={22} strokeWidth={2.2} />
+            )}
           </Pressable>
-        )}
-      </ComposerPrimitive.Root>
+          <MicTriggerButton
+            disabled={isUploading || isRunning}
+            onPress={() => {
+              setVoiceError(null);
+              setIsVoiceRecording(true);
+            }}
+          />
+          <ComposerPrimitive.Input
+            accessibilityLabel="Message Effi"
+            multiline
+            placeholder="Describe the problem..."
+            placeholderTextColor={muted}
+            style={[styles.composerInput, { color: foreground }]}
+          />
+          {isRunning ? (
+            <ComposerPrimitive.Cancel
+              accessibilityLabel="Stop Effi"
+              style={({ pressed }) => [
+                styles.sendButton,
+                { backgroundColor: blue, opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <X color={white} size={20} strokeWidth={2.5} />
+            </ComposerPrimitive.Cancel>
+          ) : (
+            <Pressable
+              accessibilityLabel="Send message"
+              accessibilityRole="button"
+              disabled={!hasContent || isUploading}
+              onPress={send}
+              style={({ pressed }) => [
+                styles.sendButton,
+                {
+                  backgroundColor: blue,
+                  opacity: pressed || !hasContent || isUploading ? 0.45 : 1,
+                },
+              ]}
+            >
+              <Send color={white} size={19} strokeWidth={2.4} />
+            </Pressable>
+          )}
+        </ComposerPrimitive.Root>
+      )}
     </View>
   );
 }
 
 function ConnectedReportChat({ host }: { host: string }) {
   const { getToken } = useAuth();
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getToken().then((t) => {
+      if (active) setAuthToken(t ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [getToken]);
+
   const headers = useCallback(async () => {
     const token = await getToken();
     return token ? { authorization: `Bearer ${token}` } : {};
@@ -1093,7 +1418,27 @@ function ConnectedReportChat({ host }: { host: string }) {
   const runtime = useEveAgentRuntime({ host, headers });
   const canvas = useColor("homeCanvas");
   const [location, setLocation] = useState<CapturedLocation | null>(null);
-  const reportFlow = useMemo(() => ({ location, setLocation }), [location]);
+  const [onPickMedia, setOnPickMedia] = useState<(() => void) | undefined>(
+    undefined,
+  );
+  const [preferredLanguage, setPreferredLanguage] =
+    useState<PreferredResponseLanguage>("auto");
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const reportFlow = useMemo(
+    () => ({
+      gatewayHost: host,
+      token: authToken,
+      location,
+      setLocation,
+      onPickMedia,
+      setOnPickMedia,
+      preferredLanguage,
+      setPreferredLanguage,
+      detectedLanguage,
+      setDetectedLanguage,
+    }),
+    [host, authToken, location, onPickMedia, preferredLanguage, detectedLanguage],
+  );
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -1106,8 +1451,8 @@ function ConnectedReportChat({ host }: { host: string }) {
         >
           <StatusBar style="dark" />
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            enabled
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            enabled={Platform.OS === "ios"}
             keyboardVerticalOffset={0}
             style={styles.screen}
           >
@@ -1179,27 +1524,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     alignSelf: "stretch",
+    width: "100%",
     gap: 9,
   },
   userRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
     alignSelf: "stretch",
+    width: "100%",
   },
   avatar: {
     width: 38,
     height: 38,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  messageColumn: { maxWidth: "81%" },
+  messageColumn: {
+    flex: 1,
+    maxWidth: "84%",
+  },
   assistantBubble: {
-    maxWidth: "81%",
+    width: "100%",
     borderWidth: 1,
     borderRadius: 18,
     borderTopLeftRadius: 7,
     paddingHorizontal: 15,
     paddingVertical: 12,
+  },
+  assistantContentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
   },
   userBubble: {
     maxWidth: "84%",
@@ -1208,8 +1565,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 12,
   },
-  messageText: { fontSize: 17, lineHeight: 24 },
-  messageMeta: { marginTop: 5, marginLeft: 6, fontSize: 12, lineHeight: 16 },
+  messageText: {
+    fontSize: 16,
+    lineHeight: 23,
+  },
+  messageMeta: {
+    marginTop: 5,
+    marginLeft: 6,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   typingBubble: {
     minWidth: 54,
     minHeight: 42,
@@ -1222,32 +1587,32 @@ const styles = StyleSheet.create({
   composerDock: {
     paddingHorizontal: 14,
     paddingTop: 10,
-    paddingBottom: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   composer: {
-    minHeight: 54,
+    minHeight: 52,
     borderWidth: 1,
-    borderRadius: 27,
-    paddingLeft: 7,
-    paddingRight: 5,
-    paddingVertical: 5,
+    borderRadius: 26,
+    paddingLeft: 6,
+    paddingRight: 6,
+    paddingVertical: 4,
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
+    alignItems: "center",
+    gap: 6,
   },
   composerInput: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 38,
     maxHeight: 120,
-    paddingTop: 10,
-    paddingBottom: 9,
-    fontSize: 17,
-    lineHeight: 22,
+    paddingTop: Platform.OS === "android" ? 6 : 8,
+    paddingBottom: Platform.OS === "android" ? 6 : 8,
+    fontSize: 16,
+    textAlignVertical: "center",
   },
   attachButton: {
-    width: 40,
-    height: 42,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1298,9 +1663,9 @@ const styles = StyleSheet.create({
     minHeight: 78,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1427,4 +1792,36 @@ const styles = StyleSheet.create({
   },
   configurationCopy: { textAlign: "center", fontSize: 16, lineHeight: 23 },
   configurationValue: { textAlign: "center", fontSize: 13, lineHeight: 18 },
+  languageBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 8,
+  },
+  languageOptions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  languagePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  languagePillText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  detectedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  detectedBadgeText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+  },
 });

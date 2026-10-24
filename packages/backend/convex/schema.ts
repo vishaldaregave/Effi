@@ -2,12 +2,14 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   acceptedEvidenceValidator,
+  aiEvidenceAssessmentValidator,
   anonymousTranscriptPayloadValidator,
   caseAuditEventValidator,
   caseBriefValidator,
   caseStatusValidator,
   caseTranscriptContentValidator,
   channelValidator,
+  citizenConfirmationResponseValidator,
   exactLocationValidator,
   issueCategoryValidator,
   priorityValidator,
@@ -126,6 +128,7 @@ export default defineSchema({
     assignedOfficerId: v.optional(v.id("identities")),
     assignedOfficerName: v.optional(v.string()),
     repostCount: v.optional(v.number()),
+    latestResolutionId: v.optional(v.id("caseResolutions")),
   })
     .index("by_report_id", ["reportId"])
     .index("by_submitted_at", ["submittedAt"])
@@ -134,6 +137,19 @@ export default defineSchema({
       "currentPriority",
       "submittedAt",
     ]),
+  caseResolutions: defineTable({
+    caseId: v.id("cases"),
+    officerId: v.id("identities"),
+    officerName: v.string(),
+    resolutionNote: v.string(),
+    evidence: v.array(acceptedEvidenceValidator),
+    location: v.optional(exactLocationValidator),
+    submittedAt: v.number(),
+    aiAssessment: v.optional(aiEvidenceAssessmentValidator),
+    citizenConfirmation: v.optional(citizenConfirmationResponseValidator),
+  })
+    .index("by_case_id", ["caseId"])
+    .index("by_case_id_and_submitted_at", ["caseId", "submittedAt"]),
   caseReposts: defineTable({
     caseId: v.id("cases"),
     citizenId: v.id("identities"),

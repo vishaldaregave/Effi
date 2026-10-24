@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  SUPPORTED_VOICE_LANGUAGES,
   VoiceConversationPreferences,
   detectTextLanguage,
   isReportReadyForReview,
   pendingVoiceMessage,
+  resolveResponseLanguage,
   retryTransientOperation,
+  synthesizeVoiceOrUndefined,
   transcribeInboundVoice,
+  transientError,
   type VoiceFetch,
 } from "../src/voice.js";
 import { CartesiaVoiceProvider } from "../src/cartesia-voice-provider.js";
@@ -13,6 +17,8 @@ import { DeepgramVoiceProvider } from "../src/deepgram-voice-provider.js";
 import { AiGatewayVoiceProvider } from "../src/ai-gateway-voice-provider.js";
 import { sendTelegramVoice } from "../src/telegram-voice-delivery.js";
 import { SharedReportIngress, SimulatedReportStore } from "../src/index.js";
+import { checkVoiceEnvironment } from "../src/voice-environment.js";
+
 
 const jsonResponse = (body: unknown): Response => Response.json(body);
 
@@ -75,8 +81,55 @@ describe("configured voice providers", () => {
     });
     expect(transcribeFile).toHaveBeenCalledWith(
       { data: Buffer.from("voice-bytes"), contentType: "audio/ogg" },
-      { model: "nova-3", detect_language: true, smart_format: true, punctuate: true },
+      { model: "nova-3", language: "multi", smart_format: true, punctuate: true },
     );
+  });
+
+  it("transcribes with Deepgram Nova-3 using an explicit requested language hint", async () => {
+    const transcribeFile = vi.fn(async () => ({
+      results: {
+        channels: [{
+          alternatives: [{ transcript: "रस्त्यावर खड्डा पडला आहे", languages: ["mr"] }],
+        }],
+      },
+    }));
+    const provider = new DeepgramVoiceProvider({ apiKey: "deepgram-test-key", transcribeFile });
+
+    await expect(provider.transcribe({
+      data: Buffer.from("voice-bytes"),
+      mediaType: "audio/ogg",
+      fileName: "citizen-note.ogg",
+      languageCode: "mr-IN",
+    })).resolves.toEqual({
+      status: "transcribed",
+      transcript: "रस्त्यावर खड्डा पडला आहे",
+      languageCode: "mr-IN",
+    });
+    expect(transcribeFile).toHaveBeenCalledWith(
+      { data: Buffer.from("voice-bytes"), contentType: "audio/ogg" },
+      { model: "nova-3", language: "mr", smart_format: true, punctuate: true },
+    );
+  });
+
+  it("corrects Deepgram language classification from hi to mr when Marathi markers are present", async () => {
+    const transcribeFile = vi.fn(async () => ({
+      results: {
+        channels: [{
+          detected_language: "hi",
+          alternatives: [{ transcript: "मला एक खड्डा report करायचा आहे" }],
+        }],
+      },
+    }));
+    const provider = new DeepgramVoiceProvider({ apiKey: "deepgram-test-key", transcribeFile });
+
+    await expect(provider.transcribe({
+      data: Buffer.from("voice-bytes"),
+      mediaType: "audio/ogg",
+    })).resolves.toEqual({
+      status: "transcribed",
+      transcript: "मला एक खड्डा report करायचा आहे",
+      languageCode: "mr-IN",
+    });
   });
 
   it("returns an explicit recovery status when Deepgram finds no speech", async () => {
@@ -239,3 +292,184 @@ describe("staged voice ingress", () => {
     expect(preferences.get("whatsapp", "thread-1")).toEqual({ modality: "voice", languageCode: "hi-IN" });
   });
 });
+
+describe("voice provider reliability and error handling", () => {
+  it("treats empty audio as unintelligible without invoking AI Gateway", async () => {
+    const transcribe = vi.fn();
+    const provider = new AiGatewayVoiceProvider({ model: "openai/whisper-1", transcribe });
+
+    const result = await provider.transcribe({ data: new Uint8Array(0), mediaType: "audio/ogg" });
+    expect(result).toEqual({ status: "unintelligible" });
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it("throws an actionable error when AI Gateway is called without an API key", async () => {
+    const prevKey = process.env.AI_GATEWAY_API_KEY;
+    delete process.env.AI_GATEWAY_API_KEY;
+    try {
+      const provider = new AiGatewayVoiceProvider({ model: "openai/whisper-1" });
+      await expect(provider.transcribe({ data: Buffer.from("data"), mediaType: "audio/ogg" }))
+        .rejects.toThrow("AI Gateway transcription is not configured. Set AI_GATEWAY_API_KEY.");
+    } finally {
+      if (prevKey !== undefined) process.env.AI_GATEWAY_API_KEY = prevKey;
+    }
+  });
+
+  it("throws an actionable error when Cartesia credentials are not set", async () => {
+    const provider = new CartesiaVoiceProvider({ apiKey: "", voiceId: "" });
+    await expect(provider.synthesize({ text: "Hello", languageCode: "en-IN" }))
+      .rejects.toThrow("Cartesia text-to-speech is not configured.");
+  });
+
+  it("rejects synthesis of empty text in Cartesia", async () => {
+    const provider = new CartesiaVoiceProvider({ apiKey: "key", voiceId: "voice" });
+    await expect(provider.synthesize({ text: "   ", languageCode: "en-IN" }))
+      .rejects.toThrow("Cannot synthesize speech from empty text.");
+  });
+
+  it("throws when Cartesia returns empty audio bytes", async () => {
+    const generate = vi.fn(async () => new Response(new Uint8Array(0)));
+    const provider = new CartesiaVoiceProvider({ apiKey: "key", voiceId: "voice", generate });
+
+    await expect(provider.synthesize({ text: "Hello", languageCode: "en-IN" }))
+      .rejects.toThrow("Cartesia text-to-speech returned empty audio.");
+  });
+
+  it("throws when Cartesia returns an HTTP failure response", async () => {
+    const generate = vi.fn(async () => new Response("error", { status: 400, statusText: "Bad Request" }));
+    const provider = new CartesiaVoiceProvider({ apiKey: "key", voiceId: "voice", generate });
+
+    await expect(provider.synthesize({ text: "Hello", languageCode: "en-IN" }))
+      .rejects.toThrow("Cartesia text-to-speech failed with HTTP 400.");
+  });
+
+  it("falls back to undefined and invokes onError callback when voice synthesis fails", async () => {
+    const provider = new CartesiaVoiceProvider({ apiKey: "", voiceId: "" });
+    const onError = vi.fn();
+
+    const result = await synthesizeVoiceOrUndefined(provider, { text: "Hello", languageCode: "en-IN" }, onError);
+    expect(result).toBeUndefined();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it("rejects empty audio data in Telegram voice delivery", async () => {
+    await expect(sendTelegramVoice({
+      botToken: "test-token",
+      chatId: "123",
+      audio: { data: Buffer.alloc(0), mediaType: "audio/mpeg", languageCode: "en-IN" },
+    })).rejects.toThrow("Cannot deliver empty voice audio to Telegram.");
+  });
+
+  it("sanitizes Telegram bot token from delivery errors", async () => {
+    const fetch: VoiceFetch = vi.fn(async () => {
+      throw new Error("Connection failed to https://api.telegram.org/bot12345:secret-token/sendVoice");
+    });
+
+    await expect(sendTelegramVoice({
+      botToken: "12345:secret-token",
+      fetch,
+      chatId: "123",
+      audio: { data: Buffer.from("audio"), mediaType: "audio/mpeg", languageCode: "en-IN" },
+    })).rejects.toThrow(/\[REDACTED_BOT_TOKEN\]/);
+  });
+
+  it("classifies transient vs permanent errors correctly", () => {
+    expect(transientError(new Error("Request timeout"))).toBe(true);
+    expect(transientError(new Error("Rate limit exceeded"))).toBe(true);
+    expect(transientError({ status: 429 })).toBe(true);
+    expect(transientError({ status: 503 })).toBe(true);
+    expect(transientError({ status: 401 })).toBe(false);
+    expect(transientError({ status: 403 })).toBe(false);
+    expect(transientError(new Error("AI Gateway transcription is not configured."))).toBe(false);
+    expect(transientError(new Error("Unauthorized"))).toBe(false);
+  });
+
+  it("validates voice environment configuration without exposing secret values", () => {
+    const emptyStatus = checkVoiceEnvironment({});
+    expect(emptyStatus.sttConfigured).toBe(false);
+    expect(emptyStatus.ttsConfigured).toBe(false);
+    expect(emptyStatus.missingVariables).toEqual(["DEEPGRAM_API_KEY (or AI_GATEWAY_API_KEY)", "CARTESIA_API_KEY", "CARTESIA_VOICE_ID"]);
+    expect(emptyStatus.warnings).toHaveLength(3);
+
+    const configuredStatus = checkVoiceEnvironment({
+      AI_GATEWAY_API_KEY: "secret-key",
+      CARTESIA_API_KEY: "secret-cartesia",
+      CARTESIA_VOICE_ID: "voice-123",
+    });
+    expect(configuredStatus.sttConfigured).toBe(true);
+    expect(configuredStatus.ttsConfigured).toBe(true);
+    expect(configuredStatus.missingVariables).toHaveLength(0);
+    expect(configuredStatus.warnings).toHaveLength(0);
+  });
+});
+
+describe("multilingual contract and voice routing", () => {
+  it("defines genuine supported languages", () => {
+    expect(SUPPORTED_VOICE_LANGUAGES).toEqual(["hi-IN", "mr-IN", "en-IN"]);
+  });
+
+  it("resolves user preferred language overriding detected language", () => {
+    expect(resolveResponseLanguage("mr-IN", "hi-IN")).toBe("mr-IN");
+    expect(resolveResponseLanguage("hi-IN", "en-IN")).toBe("hi-IN");
+    expect(resolveResponseLanguage("en-IN", "mr-IN")).toBe("en-IN");
+  });
+
+  it("resolves auto-detection when a supported language is detected", () => {
+    expect(resolveResponseLanguage("auto", "mr-IN")).toBe("mr-IN");
+    expect(resolveResponseLanguage("auto", "hi-IN")).toBe("hi-IN");
+    expect(resolveResponseLanguage("auto", "en-IN")).toBe("en-IN");
+    expect(resolveResponseLanguage("auto", "mr")).toBe("mr-IN");
+    expect(resolveResponseLanguage("auto", "hi")).toBe("hi-IN");
+    expect(resolveResponseLanguage("auto", "en")).toBe("en-IN");
+  });
+
+  it("returns undefined for auto-detection when language is undetected or unsupported", () => {
+    expect(resolveResponseLanguage("auto", undefined)).toBeUndefined();
+    expect(resolveResponseLanguage("auto", "")).toBeUndefined();
+    expect(resolveResponseLanguage("auto", "fr-FR")).toBeUndefined();
+    expect(detectTextLanguage("1234567890 ???")).toBeUndefined();
+    expect(detectTextLanguage("")).toBeUndefined();
+  });
+
+  it("preserves the original transcript and detects Marathi from text with distinct characters", () => {
+    const marathiText = "शाळेजवळ मोठा खड्डा पडला आहे";
+    expect(detectTextLanguage(marathiText)).toBe("mr-IN");
+  });
+
+  it("Cartesia selects Marathi voice when languageCode is Marathi", async () => {
+    const generate = vi.fn(async () => new Response(Buffer.from("audio-bytes")));
+    const provider = new CartesiaVoiceProvider({
+      apiKey: "cartesia-key",
+      voiceId: "hindi-default-voice",
+      generate,
+    });
+
+    const audio = await provider.synthesize({
+      text: "रस्ता दुरुस्त केला जाईल.",
+      languageCode: "mr-IN",
+    });
+
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        language: "mr",
+        voice: "5c32dce6-936a-4892-b131-bafe474afe5f",
+      }),
+    );
+    expect(audio.languageCode).toBe("mr-IN");
+  });
+
+  it("Cartesia rejects unsupported languages rather than faking another language", async () => {
+    const provider = new CartesiaVoiceProvider({
+      apiKey: "cartesia-key",
+      voiceId: "default-voice",
+    });
+
+    await expect(
+      provider.synthesize({
+        text: "道路に穴があります",
+        languageCode: "ja-JP",
+      }),
+    ).rejects.toThrow(/does not support language: ja-JP/);
+  });
+});
+

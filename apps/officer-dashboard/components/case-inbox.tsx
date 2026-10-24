@@ -29,7 +29,15 @@ import {
 const listCases = makeFunctionReference<"query", Record<string, never>, CaseSummary[]>("cases:listCases");
 
 const priorityTones: Record<CasePriority, BadgeTone> = { critical: "ink", high: "lavender", medium: "fog", low: "outline" };
-const statusTones: Record<CaseStatus, BadgeTone> = { new: "violet", assigned: "lavender", under_inspection: "orchid", work_in_progress: "fog", resolved: "mint" };
+const statusTones: Record<CaseStatus, BadgeTone> = {
+  new: "violet",
+  assigned: "lavender",
+  under_inspection: "orchid",
+  work_in_progress: "fog",
+  awaiting_confirmation: "orchid",
+  resolved: "mint",
+  disputed: "ink",
+};
 
 const caseCountLabel = (count: number) => `${count} ${count === 1 ? "case" : "cases"}`;
 

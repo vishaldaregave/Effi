@@ -44,7 +44,7 @@ function FilledIcon({ name, color, cutoutColor, size }: Omit<MainTabIconProps, "
     width: size,
     height: size,
     viewBox: "0 0 24 24",
-    accessible: false,
+    "aria-hidden": true,
   };
 
   switch (name) {

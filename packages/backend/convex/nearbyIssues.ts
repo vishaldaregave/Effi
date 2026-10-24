@@ -198,7 +198,7 @@ export const nearbyAssignedCases = query({
         q.eq("externalId", authIdentity.tokenIdentifier),
       )
       .unique();
-    if (account && account.role !== "citizen")
+    if (account && account.role !== "citizen" && account.role !== "officer" && account.role !== "admin")
       throw new Error("A citizen account is required.");
 
     const statusBatches = await Promise.all(

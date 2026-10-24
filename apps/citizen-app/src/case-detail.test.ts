@@ -29,6 +29,11 @@ describe("citizen case detail", () => {
       { ...base, event: { kind: "priority_changed", from: "medium", to: "high" } },
       { ...base, event: { kind: "status_changed", from: "assigned", to: "under_inspection" } },
       { ...base, event: { kind: "resolved", from: "work_in_progress", to: "resolved", resolutionNote: "Fixed." } },
+      { ...base, event: { kind: "resolution_submitted", resolutionNote: "Patched road.", evidenceCount: 1 } },
+      { ...base, event: { kind: "citizen_confirmed", comment: "Great job!" } },
+      { ...base, event: { kind: "citizen_disputed", comment: "Still leaking." } },
+      { ...base, event: { kind: "case_reopened", reason: "Sending secondary crew." } },
+      { ...base, event: { kind: "resolution_verified_by_officer", reason: "Site inspection complete." } },
     ];
 
     expect(entries.map(timelineEntryTitle)).toEqual([
@@ -37,6 +42,11 @@ describe("citizen case detail", () => {
       "Priority changed from Medium to High",
       "Moved to Under inspection",
       "Issue resolved",
+      "Repair evidence submitted",
+      "Resolution confirmed by you",
+      "Resolution disputed by you",
+      "Case reopened for rework",
+      "Resolution verified by officer",
     ]);
   });
 });

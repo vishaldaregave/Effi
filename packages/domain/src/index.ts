@@ -24,8 +24,24 @@ export type LocationSource = (typeof locationSources)[number];
 export const sourceCitationKinds = ["transcript_message", "accepted_evidence"] as const;
 export type SourceCitationKind = (typeof sourceCitationKinds)[number];
 
-export const caseStatuses = ["new", "assigned", "under_inspection", "work_in_progress", "resolved"] as const;
+export const caseStatuses = [
+  "new",
+  "assigned",
+  "under_inspection",
+  "work_in_progress",
+  "awaiting_confirmation",
+  "resolved",
+  "disputed",
+] as const;
 export type CaseStatus = (typeof caseStatuses)[number];
+
+export const resolutionRecommendations = [
+  "supports_resolution",
+  "requires_review",
+  "insufficient_evidence",
+  "resolution_disputed",
+] as const;
+export type ResolutionRecommendation = (typeof resolutionRecommendations)[number];
 
 export type GeoLocation = { latitude: number; longitude: number; label: string; precision: "exact" | "approximate" };
 export type ActorRole = "citizen" | "officer" | "admin";

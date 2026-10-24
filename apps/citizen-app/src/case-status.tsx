@@ -31,7 +31,9 @@ const statusVariants: Record<CaseStatus, BadgeVariant> = {
   assigned: "secondary",
   under_inspection: "secondary",
   work_in_progress: "outline",
+  awaiting_confirmation: "secondary",
   resolved: "success",
+  disputed: "destructive",
 };
 
 const priorityVariants: Record<CasePriority, BadgeVariant> = {

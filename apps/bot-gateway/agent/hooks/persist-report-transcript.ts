@@ -14,9 +14,12 @@ const persistEntry = async (
   const reportConversation = reportConversationFromAuth(auth);
   if (!reportConversation) return;
   const conversation = reportStore.activeConversation(reportConversation.channel, reportConversation.conversationId);
-  if (!conversation) throw new Error("The active report conversation is missing while persisting an Effi transcript entry.");
+  if (!conversation) return;
   const persisted = await durableReportStore.persistEffiTranscriptMessage({ conversation, ...entry });
-  if (!persisted) throw new Error("The durable report draft is missing while persisting an Effi transcript entry.");
+  if (!persisted) {
+    if (conversation.phase === "cancelled" || conversation.phase === "registered") return;
+    throw new Error("The durable report draft is missing while persisting an Effi transcript entry.");
+  }
 };
 
 export default defineHook({

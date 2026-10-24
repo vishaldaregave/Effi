@@ -14,3 +14,14 @@ expo-env.d.ts
 .effi/
 .scratch/
 .vercel
+.env*
+scratch/
+scratch_*
+*.zip
+*.apk
+*.exe
+*.log
+screenshot*.png
+screen*.png
+ui.xml
+ui_dump.xml

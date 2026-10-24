@@ -89,7 +89,9 @@ export class TelegramReportIngress {
         accepted = existing;
       }
       const voiceInbound = stagedVoice
-        ? await transcribeInboundVoice(pendingInbound, stagedVoice, this.voiceProvider)
+        ? await transcribeInboundVoice(pendingInbound, stagedVoice, this.voiceProvider, (error) => {
+            console.warn("Effi Telegram voice transcription failed:", error instanceof Error ? error.message : String(error));
+          })
         : pendingInbound;
       const enriched = stagedVoice
         ? durableReportStore

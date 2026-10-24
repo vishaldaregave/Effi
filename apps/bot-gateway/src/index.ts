@@ -15,3 +15,4 @@ export * from "./failure-context.js";
 export * from "./convex-report-store.js";
 export * from "./claim-expiration-notification.js";
 export * from "./video-observation.js";
+export * from "./voice-environment.js";

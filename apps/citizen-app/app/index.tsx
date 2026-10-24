@@ -9,6 +9,8 @@ export default function HomeScreen() {
   const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
 
+  console.log("[HomeScreen]", { isLoaded, isSignedIn });
+
   if (!isLoaded) {
     return (
       <View style={styles.loading}>

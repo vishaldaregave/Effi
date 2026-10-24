@@ -4,7 +4,17 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { CaseEvidence } from "./case-detail-types";
 
-export function EvidenceViewer({ evidence, compact = false }: { evidence: readonly CaseEvidence[]; compact?: boolean }) {
+export function EvidenceViewer({
+  evidence,
+  compact = false,
+  title = "What the citizen submitted",
+  subtitle = "Accepted evidence",
+}: {
+  evidence: readonly CaseEvidence[];
+  compact?: boolean;
+  title?: string;
+  subtitle?: string;
+}) {
   const [selectedEvidence, setSelectedEvidence] = useState<CaseEvidence | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -35,8 +45,8 @@ export function EvidenceViewer({ evidence, compact = false }: { evidence: readon
       <section className="min-w-0 overflow-hidden rounded-[10px] border border-line bg-surface" aria-labelledby="evidence-title">
         <div className={`flex items-end justify-between border-b border-line ${compact ? "min-h-14 gap-3 px-4 py-3" : "min-h-[72px] gap-5 p-4 sm:px-5 sm:py-4"}`}>
           <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-graphite">Accepted evidence</p>
-            <h2 className={`${compact ? "text-base" : "text-xl"} font-semibold tracking-[-0.015em] text-ink`} id="evidence-title">What the citizen submitted</h2>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-graphite">{subtitle}</p>
+            <h2 className={`${compact ? "text-base" : "text-xl"} font-semibold tracking-[-0.015em] text-ink`} id="evidence-title">{title}</h2>
           </div>
           <span className="font-display text-xs text-graphite">{evidence.length} {evidence.length === 1 ? "item" : "items"}</span>
         </div>
@@ -51,7 +61,7 @@ export function EvidenceViewer({ evidence, compact = false }: { evidence: readon
                   aria-label="Open accepted photo"
                 >
                   <span className={`relative block bg-fog ${compact ? "aspect-[16/9]" : "aspect-[4/3]"}`}>
-                    <Image className="object-cover" src={item.url} alt="Accepted photo of the reported civic issue" fill sizes={compact ? "(max-width: 1439px) 100vw, 400px" : "(max-width: 680px) 100vw, 760px"} />
+                    <Image className="object-cover" src={item.url} alt="Accepted photo of the reported civic issue" fill sizes={compact ? "(max-width: 1439px) 100vw, 400px" : "(max-width: 680px) 100vw, 760px"} unoptimized />
                   </span>
                   <span className="absolute bottom-3 right-3 translate-y-1 rounded-md bg-ink px-2.5 py-1.5 text-[11px] font-semibold text-white opacity-0 shadow-panel transition-[opacity,transform] group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none">View full image</span>
                 </button>
@@ -98,7 +108,7 @@ export function EvidenceViewer({ evidence, compact = false }: { evidence: readon
               Close preview
             </button>
             <div className="relative min-h-0 overflow-hidden rounded-lg bg-black/20">
-              <Image className="object-contain" src={selectedEvidence.url} alt="Accepted photo of the reported civic issue" fill sizes="100vw" priority />
+              <Image className="object-contain" src={selectedEvidence.url} alt="Accepted photo of the reported civic issue" fill sizes="100vw" priority unoptimized />
             </div>
           </div>
         </div>

@@ -72,6 +72,8 @@ const sendTelegramVoiceReply = async (telegram: TelegramHandle, text: string): P
   const audio = await synthesizeVoiceOrUndefined(telegramReportIngress.voiceProvider, {
     text,
     languageCode: preference.languageCode,
+  }, (error) => {
+    console.warn("Effi Telegram voice synthesis failed; falling back to text:", error instanceof Error ? error.message : String(error));
   });
   if (!audio) {
     await telegram.post(text);
@@ -87,15 +89,24 @@ const sendTelegramVoiceReply = async (telegram: TelegramHandle, text: string): P
       ...(telegram.messageThreadId === undefined ? {} : { messageThreadId: telegram.messageThreadId }),
       audio,
     });
-  } catch {
+  } catch (error) {
+    console.warn("Effi Telegram voice delivery failed; falling back to text:", error instanceof Error ? error.message : String(error));
     if (!isFinalInterpretation) await telegram.post(text);
   }
 };
 
 const sendTelegramVoiceRecovery = async (telegram: TelegramHandle): Promise<void> => {
-  const audio = await synthesizeVoiceOrUndefined(telegramReportIngress.voiceProvider, { text: voiceRecoveryText, languageCode: "hi-IN" });
+  const conversationId = telegramConversationFor(telegram);
+  const preference = voicePreferences.get("telegram", conversationId);
+  const lang = preference?.languageCode ?? "mr-IN";
+  const text = lang.startsWith("mr")
+    ? "मला तुमचे बोलणे समजले नाही. कृपया पुन्हा एक लहान व्हॉइस नोट पाठवा."
+    : voiceRecoveryText;
+  const audio = await synthesizeVoiceOrUndefined(telegramReportIngress.voiceProvider, { text, languageCode: lang }, (error) => {
+    console.warn("Effi Telegram voice recovery synthesis failed; falling back to text:", error instanceof Error ? error.message : String(error));
+  });
   if (!audio) {
-    await telegram.post(voiceRecoveryText);
+    await telegram.post(text);
     return;
   }
   try {
@@ -106,8 +117,9 @@ const sendTelegramVoiceRecovery = async (telegram: TelegramHandle): Promise<void
       ...(telegram.messageThreadId === undefined ? {} : { messageThreadId: telegram.messageThreadId }),
       audio,
     });
-  } catch {
-    await telegram.post(voiceRecoveryText);
+  } catch (error) {
+    console.warn("Effi Telegram voice delivery failed; falling back to text:", error instanceof Error ? error.message : String(error));
+    await telegram.post(text);
   }
 };
 
@@ -141,6 +153,12 @@ const config: TelegramChannelConfig = {
       if (isAuthenticationPending(telegramReportIngress.store, "telegram", conversationId)) {
         await sendTelegramVoiceReply(ctx.telegram, authenticationPendingReply);
       }
+      return null;
+    }
+    const textCommand = record.inbound.text?.trim().toLowerCase();
+    if (textCommand === "/start") {
+      await telegramReportIngress.cancelDurably(record);
+      await sendTelegramVoiceReply(ctx.telegram, "Hello! I am Effi, your civic assistant. Please describe the civic issue you would like to report, or send a photo or voice note to begin.");
       return null;
     }
     if (isDraftCancellationCommand(record.inbound)) {

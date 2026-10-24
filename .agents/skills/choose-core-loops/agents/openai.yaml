@@ -1,0 +1,4 @@
+interface:
+  display_name: "Choose Core Loops"
+  short_description: "Recommend the smallest convincing hackathon build"
+  default_prompt: "Use $choose-core-loops to recommend the core loops after our discovery work."

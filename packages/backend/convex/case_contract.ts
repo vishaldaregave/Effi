@@ -42,8 +42,28 @@ export const caseStatusValidator = v.union(
   v.literal("assigned"),
   v.literal("under_inspection"),
   v.literal("work_in_progress"),
+  v.literal("awaiting_confirmation"),
   v.literal("resolved"),
+  v.literal("disputed"),
 );
+
+export const resolutionRecommendationValidator = v.union(
+  v.literal("supports_resolution"),
+  v.literal("requires_review"),
+  v.literal("insufficient_evidence"),
+  v.literal("resolution_disputed"),
+);
+
+export const aiEvidenceAssessmentValidator = v.object({
+  recommendation: resolutionRecommendationValidator,
+  reasons: v.array(v.string()),
+  evidenceReferences: v.array(v.string()),
+  uncertainty: v.number(),
+  assessedAt: v.number(),
+  provider: v.string(),
+  manualReviewRequired: v.boolean(),
+});
+
 
 export const caseAuditEventValidator = v.union(
   v.object({
@@ -58,6 +78,39 @@ export const caseAuditEventValidator = v.union(
     from: v.literal("work_in_progress"),
     to: v.literal("resolved"),
     resolutionNote: v.string(),
+  }),
+  v.object({
+    kind: v.literal("resolution_submitted"),
+    from: caseStatusValidator,
+    to: v.literal("awaiting_confirmation"),
+    resolutionNote: v.string(),
+    evidenceCount: v.number(),
+    aiRecommendation: v.optional(resolutionRecommendationValidator),
+  }),
+  v.object({
+    kind: v.literal("citizen_confirmed"),
+    from: v.literal("awaiting_confirmation"),
+    to: v.literal("resolved"),
+    comment: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("citizen_disputed"),
+    from: v.literal("awaiting_confirmation"),
+    to: v.literal("disputed"),
+    comment: v.optional(v.string()),
+    evidenceCount: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal("case_reopened"),
+    from: v.literal("disputed"),
+    to: caseStatusValidator,
+    reason: v.string(),
+  }),
+  v.object({
+    kind: v.literal("resolution_verified_by_officer"),
+    from: caseStatusValidator,
+    to: v.literal("resolved"),
+    reason: v.string(),
   }),
 );
 export const locationSourceValidator = v.union(v.literal("current_gps"), v.literal("selected_pin"));
@@ -77,6 +130,13 @@ export const acceptedEvidenceValidator = v.object({
   storageId: v.optional(v.id("_storage")),
   mediaType: v.string(),
   sourceMessageId: v.string(),
+});
+
+export const citizenConfirmationResponseValidator = v.object({
+  verdict: v.union(v.literal("confirmed"), v.literal("disputed")),
+  respondedAt: v.number(),
+  comment: v.optional(v.string()),
+  evidence: v.optional(v.array(acceptedEvidenceValidator)),
 });
 
 export const sourceCitationValidator = v.union(

@@ -23,8 +23,21 @@ import {
 } from "./case-inbox-state";
 
 const getCase = makeFunctionReference<"query", { caseId: string }, CaseDetail>("cases:getCase");
-const priorityTones: Record<CasePriority, BadgeTone> = { critical: "ink", high: "lavender", medium: "fog", low: "outline" };
-const statusTones: Record<CaseStatus, BadgeTone> = { new: "violet", assigned: "lavender", under_inspection: "orchid", work_in_progress: "fog", resolved: "mint" };
+const priorityTones: Record<CasePriority, BadgeTone> = {
+  critical: "ink",
+  high: "lavender",
+  medium: "fog",
+  low: "outline",
+};
+const statusTones: Record<CaseStatus, BadgeTone> = {
+  new: "violet",
+  assigned: "lavender",
+  under_inspection: "orchid",
+  work_in_progress: "fog",
+  awaiting_confirmation: "orchid",
+  resolved: "mint",
+  disputed: "ink",
+};
 
 function DetailSkeleton() {
   return (
@@ -127,7 +140,17 @@ export function CaseBrief({ caseId }: { caseId: string }) {
               <h1 className="max-w-[20ch] text-balance font-display text-[clamp(2.25rem,4vw,3.5rem)] font-medium leading-[1.02] tracking-[-0.04em] text-ink">{detail.case.summary}</h1>
             </div>
           </div>
-          <EvidenceViewer evidence={detail.case.acceptedEvidence} compact />
+          <div className="grid gap-3">
+            <EvidenceViewer evidence={detail.case.acceptedEvidence} compact />
+            {detail.case.latestResolution?.evidence && detail.case.latestResolution.evidence.length > 0 ? (
+              <EvidenceViewer
+                evidence={detail.case.latestResolution.evidence}
+                title="Repair completion photos"
+                subtitle="Officer resolution evidence"
+                compact
+              />
+            ) : null}
+          </div>
         </header>
         <div className="contents">
           <div className="col-start-1 row-start-3 grid gap-4 max-[920px]:row-start-4">

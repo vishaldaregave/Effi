@@ -1,6 +1,6 @@
 import { useUser } from "@clerk/expo";
 import { makeFunctionReference } from "convex/server";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -10,7 +10,7 @@ import {
   UserRoundCheck,
   Wrench,
 } from "lucide-react-native";
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { Pressable, ScrollView, StyleSheet } from "react-native";
 import type { LucideProps } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -27,6 +27,7 @@ import {
 import { useColor } from "@/hooks/useColor";
 
 const viewerCases = makeFunctionReference<"query", Record<string, never>, CitizenCaseSummary[]>("citizen:viewerCases");
+const ensureCitizenFn = makeFunctionReference<"mutation", Record<string, never>, unknown>("citizen:ensureCitizen");
 
 type Tone = { background: string; foreground: string };
 
@@ -62,6 +63,14 @@ export function MainTabScreen() {
   const router = useRouter();
   const { user } = useUser();
   const cases = useQuery(viewerCases);
+  const ensureCitizen = useMutation(ensureCitizenFn);
+
+  useEffect(() => {
+    if (user) {
+      ensureCitizen().catch(() => {});
+    }
+  }, [user, ensureCitizen]);
+
   const [now] = useState(() => Date.now());
   const overview = cases === undefined ? null : countHomeOverview(cases);
   const recentCases = cases === undefined ? [] : recentCitizenCases(cases);
@@ -143,7 +152,7 @@ export function MainTabScreen() {
                 <Text style={[styles.messageCopy, { color: muted }]}>Submit an issue and its live status will appear here.</Text>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => router.push("/report")}
+                  onPress={() => router.push("/main/report")}
                   style={({ pressed }) => [styles.emptyAction, { backgroundColor: blue, opacity: pressed ? 0.72 : 1 }]}
                 >
                   <Text style={[styles.emptyActionText, { color: headerForeground }]}>Report an issue</Text>

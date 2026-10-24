@@ -24,6 +24,7 @@
     "convex": "catalog:",
     "eve": "0.52.5",
     "expo": "catalog:",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "catalog:",
     "expo-constants": "catalog:",
     "expo-crypto": "~57.0.1",

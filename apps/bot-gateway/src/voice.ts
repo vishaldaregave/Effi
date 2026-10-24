@@ -8,12 +8,13 @@ export type VoiceInput = {
   data: Uint8Array;
   mediaType: string;
   fileName?: string;
+  languageCode?: string;
 };
 
 export type VoiceTranscription = {
   status: VoiceTranscriptionStatus;
-  transcript?: string;
-  languageCode?: string;
+  transcript?: string | undefined;
+  languageCode?: string | undefined;
 };
 
 export type VoiceSynthesisInput = { text: string; languageCode: string };
@@ -47,9 +48,19 @@ export interface VoiceProvider {
   synthesize(input: VoiceSynthesisInput): Promise<VoiceAudio>;
 }
 
-const transientError = (error: unknown): boolean => {
+export const transientError = (error: unknown): boolean => {
+  if (typeof error === "object" && error !== null) {
+    const status = "status" in error && typeof error.status === "number" ? error.status : undefined;
+    const statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : undefined;
+    const code = status ?? statusCode;
+    if (code !== undefined) {
+      if (code === 400 || code === 401 || code === 403 || code === 404) return false;
+      if (code === 408 || code === 425 || code === 429 || (code >= 500 && code <= 599)) return true;
+    }
+  }
   const message = error instanceof Error ? error.message : String(error);
-  return /\b(?:408|425|429|500|502|503|504)\b|timeout|temporar|network|unavailable|rate.limit|reset/iu.test(message);
+  if (/not configured|unauthorized|forbidden|authentication|invalid_api_key/iu.test(message)) return false;
+  return /\b(?:408|425|429|500|502|503|504)\b|timeout|temporar|network|unavailable|rate.?limit|reset|econnreset|etimedout/iu.test(message);
 };
 
 /** Retry a transport/provider operation once when its failure is transient. */
@@ -67,13 +78,25 @@ export const transcribeInboundVoice = async (
   message: InboundMessage,
   staged: StagedVoiceInput,
   provider: VoiceProvider | undefined,
+  onError?: ((error: unknown) => void) | undefined,
+  languageCode?: string | undefined,
 ): Promise<InboundMessage> => {
   let transcription: VoiceTranscription;
   try {
-    transcription = provider
-      ? await provider.transcribe({ data: staged.data, mediaType: staged.attachment.mediaType, ...(staged.fileName ? { fileName: staged.fileName } : {}) })
-      : { status: "failed" };
-  } catch {
+    if (!staged.data || staged.data.byteLength === 0) {
+      transcription = { status: "unintelligible" };
+    } else {
+      transcription = provider
+        ? await provider.transcribe({
+            data: staged.data,
+            mediaType: staged.attachment.mediaType,
+            ...(staged.fileName ? { fileName: staged.fileName } : {}),
+            ...(languageCode ? { languageCode } : {}),
+          })
+        : { status: "failed" };
+    }
+  } catch (error) {
+    onError?.(error);
     transcription = { status: "failed" };
   }
 
@@ -123,10 +146,36 @@ export const normalizeLanguageCode = (value: unknown): string | undefined => {
   return undefined;
 };
 
-export const detectTextLanguage = (text: string): string => {
+export const SUPPORTED_VOICE_LANGUAGES = ["hi-IN", "mr-IN", "en-IN"] as const;
+export type SupportedVoiceLanguage = (typeof SUPPORTED_VOICE_LANGUAGES)[number];
+export type PreferredResponseLanguage = SupportedVoiceLanguage | "auto";
+
+export type MultilingualVoiceContract = {
+  readonly originalTranscript: string;
+  readonly detectedLanguage?: string | undefined;
+  readonly preferredResponseLanguage: PreferredResponseLanguage;
+  readonly responseText?: string | undefined;
+  readonly translationText?: string | undefined;
+};
+
+export const resolveResponseLanguage = (
+  preferred: PreferredResponseLanguage,
+  detected?: string | undefined,
+): SupportedVoiceLanguage | undefined => {
+  if (preferred !== "auto") return preferred;
+  const normalized = normalizeLanguageCode(detected);
+  if (normalized && (SUPPORTED_VOICE_LANGUAGES as readonly string[]).includes(normalized)) {
+    return normalized as SupportedVoiceLanguage;
+  }
+  return undefined;
+};
+
+const marathiDevanagariWordPattern = /(?:^|[^\p{Script=Devanagari}])(?:आहे|आहेत|नाही|नाहीत|मला|त्याला|त्यांना|माझ्या|माझे|माझी|माझा|आमच्या|करायचा|करायची|करायचे|करायचं|करा|झाला|झाली|झाले|पडला|पडली|पडले|पाहिजे|खूप|मोठा|मोठी|मोठे|आणि|काय|कसे|कधी|कुठे|येथे|तिथे|इथे|खड्डा|खड्ड्याला)(?:$|[^\p{Script=Devanagari}])/u;
+
+export const detectTextLanguage = (text: string): string | undefined => {
   if (/[؀-ۿ]/u.test(text)) return "ur-IN";
   if (/[ৰৱ]/u.test(text)) return "as-IN";
-  if (/[ळऴऍॲ]/u.test(text)) return "mr-IN";
+  if (/[ळऴऍॲ]/u.test(text) || marathiDevanagariWordPattern.test(text)) return "mr-IN";
   if (/[ऀ-ॿ]/u.test(text)) return "hi-IN";
   if (/[ঀ-৿]/u.test(text)) return "bn-IN";
   if (/[઀-૿]/u.test(text)) return "gu-IN";
@@ -136,14 +185,15 @@ export const detectTextLanguage = (text: string): string => {
   if (/[ಀ-೿]/u.test(text)) return "kn-IN";
   if (/[ഀ-ൿ]/u.test(text)) return "ml-IN";
   if (/[਀-੿]/u.test(text)) return "pa-IN";
-  return "en-IN";
+  if (/[a-zA-Z]/u.test(text)) return "en-IN";
+  return undefined;
 };
 
 export const languageForInput = (input: {
   text?: string;
   voiceTranscript?: string;
   languageCode?: string;
-}): string => normalizeLanguageCode(input.languageCode) ?? detectTextLanguage(input.voiceTranscript ?? input.text ?? "");
+}): string => normalizeLanguageCode(input.languageCode) ?? detectTextLanguage(input.voiceTranscript ?? input.text ?? "") ?? "en-IN";
 
 export const modalityForInput = (input: { inputModality?: VoiceModality; voiceTranscript?: string }): VoiceModality =>
   input.inputModality ?? (input.voiceTranscript !== undefined ? "voice" : "text");
@@ -189,13 +239,14 @@ export const isReportReviewMessage = (text: string): boolean => {
 };
 
 export const synthesizeVoiceOrUndefined = async (
-  provider: VoiceProvider,
+  provider: Pick<VoiceProvider, "synthesize">,
   input: VoiceSynthesisInput,
   onError?: (error: unknown) => void,
 ): Promise<VoiceAudio | undefined> => provider.synthesize(input).catch((error: unknown) => {
   onError?.(error);
   return undefined;
 });
+
 
 export const isReportReadyForReview = (conversation: {
   phase: string;

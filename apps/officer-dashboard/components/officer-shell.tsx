@@ -1,12 +1,12 @@
 "use client";
 
 import { UserButton, useUser } from "@clerk/nextjs";
-import { BarChart3, ClipboardList, MapPinned, Menu, UserRound, X } from "lucide-react";
+import { Award, BarChart3, ClipboardList, MapPinned, Menu, UserRound, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
-type OfficerNav = "cases" | "assigned" | "heatmap" | "analytics";
+type OfficerNav = "cases" | "assigned" | "heatmap" | "analytics" | "merit";
 
 type OfficerShellProps = {
   activeNav: OfficerNav;
@@ -17,7 +17,7 @@ type OfficerShellProps = {
   search?: ReactNode;
 };
 
-const navIcons = { cases: ClipboardList, assigned: UserRound, heatmap: MapPinned, analytics: BarChart3 } as const;
+const navIcons = { cases: ClipboardList, assigned: UserRound, heatmap: MapPinned, analytics: BarChart3, merit: Award } as const;
 
 function NavIcon({ kind }: { kind: keyof typeof navIcons }) {
   const Icon = navIcons[kind];
@@ -48,6 +48,9 @@ function Sidebar({ activeNav, assignedCount, caseCount, onNavigate }: Omit<Offic
         </Link>
         <Link className={`grid min-h-11 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-3 text-sm transition-colors duration-200 focus-visible:outline-2 active:scale-[0.98] motion-reduce:transition-none ${activeNav === "analytics" ? "bg-lavender font-semibold text-ink" : "text-graphite hover:bg-lavender/50 hover:text-ink"}`} href="/analytics" onClick={onNavigate}>
           <NavIcon kind="analytics" /><span>Analytics</span>
+        </Link>
+        <Link className={`grid min-h-11 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-3 text-sm transition-colors duration-200 focus-visible:outline-2 active:scale-[0.98] motion-reduce:transition-none ${activeNav === "merit" ? "bg-lavender font-semibold text-ink" : "text-graphite hover:bg-lavender/50 hover:text-ink"}`} href="/merit" onClick={onNavigate}>
+          <NavIcon kind="merit" /><span>Merit</span>
         </Link>
       </nav>
 

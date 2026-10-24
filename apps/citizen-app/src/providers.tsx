@@ -6,10 +6,11 @@ import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import { Text } from "@/components/ui/text";
 import { View } from "@/components/ui/view";
+import { resolveDevHost } from "@/bot-gateway-config";
 import { ModeProvider } from "@/providers/mode-provider";
 
 const clerkKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+const convexUrl = resolveDevHost(process.env.EXPO_PUBLIC_CONVEX_URL, 3210);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 
 function MissingConfiguration() {
@@ -29,6 +30,7 @@ function MissingConfiguration() {
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
+  console.log("[AppProviders] rendering", { clerkKey: Boolean(clerkKey), convexUrl });
   if (!clerkKey || !convex) return <MissingConfiguration />;
 
   return (

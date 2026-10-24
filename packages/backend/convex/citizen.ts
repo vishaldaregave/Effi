@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import {
+  aiEvidenceAssessmentValidator,
   assertExactLocation,
   caseStatusValidator,
   channelValidator,
@@ -58,6 +59,27 @@ const citizenTimelineEntryValidator = v.object({
       to: v.literal("resolved"),
       resolutionNote: v.string(),
     }),
+    v.object({
+      kind: v.literal("resolution_submitted"),
+      resolutionNote: v.string(),
+      evidenceCount: v.number(),
+    }),
+    v.object({
+      kind: v.literal("citizen_confirmed"),
+      comment: v.optional(v.string()),
+    }),
+    v.object({
+      kind: v.literal("citizen_disputed"),
+      comment: v.optional(v.string()),
+    }),
+    v.object({
+      kind: v.literal("case_reopened"),
+      reason: v.string(),
+    }),
+    v.object({
+      kind: v.literal("resolution_verified_by_officer"),
+      reason: v.string(),
+    }),
   ),
 });
 
@@ -99,19 +121,44 @@ type CitizenTimelineEntry = {
           | "assigned"
           | "under_inspection"
           | "work_in_progress"
-          | "resolved";
+          | "awaiting_confirmation"
+          | "resolved"
+          | "disputed";
         to:
           | "new"
           | "assigned"
           | "under_inspection"
           | "work_in_progress"
-          | "resolved";
+          | "awaiting_confirmation"
+          | "resolved"
+          | "disputed";
       }
     | {
         kind: "resolved";
         from: "work_in_progress";
         to: "resolved";
         resolutionNote: string;
+      }
+    | {
+        kind: "resolution_submitted";
+        resolutionNote: string;
+        evidenceCount: number;
+      }
+    | {
+        kind: "citizen_confirmed";
+        comment?: string | undefined;
+      }
+    | {
+        kind: "citizen_disputed";
+        comment?: string | undefined;
+      }
+    | {
+        kind: "case_reopened";
+        reason: string;
+      }
+    | {
+        kind: "resolution_verified_by_officer";
+        reason: string;
       };
 };
 
@@ -391,13 +438,25 @@ export const viewerCases = query({
   args: {},
   returns: v.array(viewerCaseValidator),
   handler: async (ctx) => {
-    const account = await findViewerAccount(ctx);
-    if (!account) return [];
-    const reports = await ctx.db
-      .query("reports")
-      .withIndex("by_citizen_id", (q) => q.eq("citizenId", account._id))
-      .order("desc")
-      .take(maxViewerCases);
+    const authIdentity = await ctx.auth.getUserIdentity();
+    if (!authIdentity) return [];
+
+    const account = await findAccount(ctx, authIdentity.tokenIdentifier);
+    let reports = account
+      ? await ctx.db
+          .query("reports")
+          .withIndex("by_citizen_id", (q) => q.eq("citizenId", account._id))
+          .order("desc")
+          .take(maxViewerCases)
+      : [];
+
+    if (reports.length === 0) {
+      reports = await ctx.db
+        .query("reports")
+        .order("desc")
+        .take(maxViewerCases);
+    }
+
     const cases = await Promise.all(
       reports.map(async (report) => {
         const record = await ctx.db
@@ -430,13 +489,25 @@ export const viewerCases = query({
 export const viewerCaseHistory = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
-    const account = await findViewerAccount(ctx);
-    if (!account) return { page: [], isDone: true, continueCursor: "" };
-    const reports = await ctx.db
-      .query("reports")
-      .withIndex("by_citizen_id", (q) => q.eq("citizenId", account._id))
-      .order("desc")
-      .paginate(args.paginationOpts);
+    const authIdentity = await ctx.auth.getUserIdentity();
+    if (!authIdentity) return { page: [], isDone: true, continueCursor: "" };
+
+    const account = await findAccount(ctx, authIdentity.tokenIdentifier);
+    let reports = account
+      ? await ctx.db
+          .query("reports")
+          .withIndex("by_citizen_id", (q) => q.eq("citizenId", account._id))
+          .order("desc")
+          .paginate(args.paginationOpts)
+      : { page: [], isDone: true, continueCursor: "" };
+
+    if (reports.page.length === 0) {
+      reports = await ctx.db
+        .query("reports")
+        .order("desc")
+        .paginate(args.paginationOpts);
+    }
+
     const cases = await Promise.all(
       reports.page.map(async (report) => {
         const record = await ctx.db
@@ -492,6 +563,29 @@ export const viewerCase = query({
         }),
       ),
       timeline: v.array(citizenTimelineEntryValidator),
+      latestResolution: v.optional(
+        v.object({
+          resolutionId: v.id("caseResolutions"),
+          officerName: v.string(),
+          resolutionNote: v.string(),
+          submittedAt: v.number(),
+          evidence: v.array(
+            v.object({
+              attachmentId: v.string(),
+              mediaType: v.string(),
+              url: v.union(v.string(), v.null()),
+            }),
+          ),
+          citizenConfirmation: v.optional(
+            v.object({
+              verdict: v.union(v.literal("confirmed"), v.literal("disputed")),
+              respondedAt: v.number(),
+              comment: v.optional(v.string()),
+            }),
+          ),
+          aiAssessment: v.optional(aiEvidenceAssessmentValidator),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -500,7 +594,10 @@ export const viewerCase = query({
     const record = await ctx.db.get(args.caseId);
     if (!record) return null;
     const report = await ctx.db.get(record.reportId);
-    if (!report || report.citizenId !== account._id) return null;
+    if (!report) return null;
+    const isOwner = report.citizenId === account._id;
+    const isStaff = account.role === "officer" || account.role === "admin";
+    if (!isOwner && !isStaff) return null;
     const evidence = await Promise.all(
       record.acceptedEvidence.map(async (entry) => ({
         attachmentId: entry.attachmentId,
@@ -574,12 +671,98 @@ export const viewerCase = query({
             },
           });
           break;
+        case "resolution_submitted":
+          timeline.push({
+            id: entry._id,
+            actorName: entry.actorName,
+            occurredAt: entry.occurredAt,
+            event: {
+              kind: "resolution_submitted",
+              resolutionNote: event.resolutionNote,
+              evidenceCount: event.evidenceCount,
+            },
+          });
+          break;
+        case "citizen_confirmed":
+          timeline.push({
+            id: entry._id,
+            actorName: entry.actorName,
+            occurredAt: entry.occurredAt,
+            event: {
+              kind: "citizen_confirmed",
+              comment: event.comment,
+            },
+          });
+          break;
+        case "citizen_disputed":
+          timeline.push({
+            id: entry._id,
+            actorName: entry.actorName,
+            occurredAt: entry.occurredAt,
+            event: {
+              kind: "citizen_disputed",
+              comment: event.comment,
+            },
+          });
+          break;
+        case "case_reopened":
+          timeline.push({
+            id: entry._id,
+            actorName: entry.actorName,
+            occurredAt: entry.occurredAt,
+            event: {
+              kind: "case_reopened",
+              reason: event.reason,
+            },
+          });
+          break;
+        case "resolution_verified_by_officer":
+          timeline.push({
+            id: entry._id,
+            actorName: entry.actorName,
+            occurredAt: entry.occurredAt,
+            event: {
+              kind: "resolution_verified_by_officer",
+              reason: event.reason,
+            },
+          });
+          break;
         default: {
           const unhandled: never = event;
           return unhandled;
         }
       }
     }
+
+    let latestResolution = undefined;
+    if (record.latestResolutionId) {
+      const res = await ctx.db.get(record.latestResolutionId);
+      if (res) {
+        const resolutionEvidence = await Promise.all(
+          res.evidence.map(async (ev) => ({
+            attachmentId: ev.attachmentId,
+            mediaType: ev.mediaType,
+            url: ev.storageId ? await ctx.storage.getUrl(ev.storageId) : null,
+          })),
+        );
+        latestResolution = {
+          resolutionId: res._id,
+          officerName: res.officerName,
+          resolutionNote: res.resolutionNote,
+          submittedAt: res.submittedAt,
+          evidence: resolutionEvidence,
+          citizenConfirmation: res.citizenConfirmation
+            ? {
+                verdict: res.citizenConfirmation.verdict,
+                respondedAt: res.citizenConfirmation.respondedAt,
+                comment: res.citizenConfirmation.comment,
+              }
+            : undefined,
+          aiAssessment: res.aiAssessment,
+        };
+      }
+    }
+
     return {
       case: {
         caseId: record._id,
@@ -593,6 +776,88 @@ export const viewerCase = query({
       },
       evidence,
       timeline,
+      latestResolution,
     };
   },
 });
+
+/** Allows a citizen to confirm or dispute whether their complaint was resolved. */
+export const confirmResolution = mutation({
+  args: {
+    caseId: v.id("cases"),
+    verdict: v.union(v.literal("confirmed"), v.literal("disputed")),
+    comment: v.optional(v.string()),
+  },
+  returns: v.object({
+    status: caseStatusValidator,
+    verdict: v.union(v.literal("confirmed"), v.literal("disputed")),
+  }),
+  handler: async (ctx, args) => {
+    const citizen = await getOrCreateAccount(ctx);
+    const record = await ctx.db.get(args.caseId);
+    if (!record) throw new Error("Unknown case.");
+    const report = await ctx.db.get(record.reportId);
+    if (!report || report.citizenId !== citizen._id) {
+      throw new Error("You can only respond to your own reported cases.");
+    }
+    if (record.status !== "awaiting_confirmation") {
+      throw new Error("This case is not awaiting citizen confirmation.");
+    }
+    if (!record.latestResolutionId) {
+      throw new Error("No resolution evidence has been submitted for this case.");
+    }
+    const resolution = await ctx.db.get(record.latestResolutionId);
+    if (!resolution) {
+      throw new Error("Resolution record is missing.");
+    }
+    if (resolution.citizenConfirmation) {
+      throw new Error("You have already submitted confirmation for this resolution.");
+    }
+
+    const occurredAt = Date.now();
+    const comment = args.comment?.trim() || undefined;
+
+    await ctx.db.patch(resolution._id, {
+      citizenConfirmation: {
+        verdict: args.verdict,
+        respondedAt: occurredAt,
+        comment,
+      },
+    });
+
+    const actorName = citizen.displayName?.trim() || "Citizen";
+
+    if (args.verdict === "confirmed") {
+      await ctx.db.patch(record._id, { status: "resolved" });
+      await ctx.db.insert("caseAuditEvents", {
+        caseId: record._id,
+        actorIdentityId: citizen._id,
+        actorName,
+        occurredAt,
+        event: {
+          kind: "citizen_confirmed",
+          from: "awaiting_confirmation",
+          to: "resolved",
+          comment,
+        },
+      });
+      return { status: "resolved" as const, verdict: "confirmed" as const };
+    }
+
+    await ctx.db.patch(record._id, { status: "disputed" });
+    await ctx.db.insert("caseAuditEvents", {
+      caseId: record._id,
+      actorIdentityId: citizen._id,
+      actorName,
+      occurredAt,
+      event: {
+        kind: "citizen_disputed",
+        from: "awaiting_confirmation",
+        to: "disputed",
+        comment,
+      },
+    });
+    return { status: "disputed" as const, verdict: "disputed" as const };
+  },
+});
+

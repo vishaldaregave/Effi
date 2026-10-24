@@ -15,10 +15,21 @@ export type ReportIngressRecord = {
 
 export const draftCancellationReply = "Okay, I cancelled this complaint. Nothing was submitted. Send a new message whenever you want to start again.";
 
-/** These exact commands are handled by the gateway so model context cannot leak across drafts. */
 export const isDraftCancellationCommand = (inbound: Pick<InboundMessage, "text" | "voiceTranscript">): boolean => {
   const command = (inbound.text ?? inbound.voiceTranscript)?.trim().toLowerCase();
-  return command === "cancel" || command === "new report" || command === "start over";
+  return (
+    command === "cancel" ||
+    command === "/cancel" ||
+    command === "start over" ||
+    command === "new report" ||
+    command === "reset" ||
+    command === "/reset" ||
+    command === "clear" ||
+    command === "/clear" ||
+    command === "restart" ||
+    command === "/restart" ||
+    command === "/start"
+  );
 };
 
 /** Persist the normalized channel contract before an Eve model turn starts. */

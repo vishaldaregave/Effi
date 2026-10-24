@@ -18,6 +18,46 @@ function AuditDescription({ entry }: { entry: CaseAuditEntry }): ReactNode {
           <blockquote>{event.resolutionNote}</blockquote>
         </>
       );
+    case "resolution_submitted":
+      return (
+        <>
+          <p>Submitted completion evidence ({event.evidenceCount} {event.evidenceCount === 1 ? "photo" : "photos"})</p>
+          <blockquote>{event.resolutionNote}</blockquote>
+          {event.aiRecommendation ? (
+            <span className="mt-1 block text-[11px] font-semibold text-action">
+              AI recommendation: {event.aiRecommendation.replace(/_/g, " ")}
+            </span>
+          ) : null}
+        </>
+      );
+    case "citizen_confirmed":
+      return (
+        <>
+          <p className="font-semibold text-action">Citizen confirmed resolution</p>
+          {event.comment ? <blockquote>{event.comment}</blockquote> : null}
+        </>
+      );
+    case "citizen_disputed":
+      return (
+        <>
+          <p className="font-semibold text-danger">Citizen disputed resolution</p>
+          {event.comment ? <blockquote>{event.comment}</blockquote> : null}
+        </>
+      );
+    case "case_reopened":
+      return (
+        <>
+          <p>Reopened case to {caseStatusLabels[event.to]}</p>
+          <blockquote>{event.reason}</blockquote>
+        </>
+      );
+    case "resolution_verified_by_officer":
+      return (
+        <>
+          <p className="font-semibold text-action">Verified resolution directly</p>
+          <blockquote>{event.reason}</blockquote>
+        </>
+      );
     default: {
       const unhandled: never = event;
       return unhandled;

@@ -51,7 +51,9 @@ export function CitizenReportCard({
     assigned: { background: useColor("assignedTint"), foreground: useColor("assignedAccent") },
     under_inspection: { background: useColor("progressTint"), foreground: useColor("progressAccent") },
     work_in_progress: { background: useColor("progressTint"), foreground: useColor("progressAccent") },
+    awaiting_confirmation: { background: useColor("assignedTint"), foreground: useColor("assignedAccent") },
     resolved: { background: useColor("resolvedTint"), foreground: useColor("resolvedAccent") },
+    disputed: { background: "#FEE2E2", foreground: "#DC2626" },
   };
   const categoryTones: Record<CaseCategory, Tone> = {
     roads: tones.new,
