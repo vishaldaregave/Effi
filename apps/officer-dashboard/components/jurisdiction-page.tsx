@@ -250,51 +250,6 @@ export function JurisdictionPage() {
           </div>
         </div>
 
-        {/* DataMeet Dataset Provenance Banner */}
-        <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50/80 via-surface to-emerald-50/60 p-4 shadow-sm sm:p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-800">
-                  <Database className="size-3 text-blue-600" />
-                  DataMeet Open Data Integration
-                </span>
-                <span className="text-xs text-muted">Repo: datameet/Pune_wards</span>
-              </div>
-              <h2 className="text-sm sm:text-base font-bold text-ink">
-                Verified Boundaries: 15 PMC Administrative Wards &amp; PCMC Electoral Zones A–F
-              </h2>
-              <p className="text-xs text-graphite max-w-3xl leading-relaxed">
-                Zone boundaries, administrative polygons, and ward office geolocations have been integrated directly from{" "}
-                <a
-                  href="https://github.com/datameet/Pune_wards"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-action underline hover:text-action-hover inline-flex items-center gap-1"
-                >
-                  <span>github.com/datameet/Pune_wards</span>
-                  <ExternalLink className="size-3" />
-                </a>
-                . Licensed under Creative Commons Attribution-ShareAlike 2.5 India (DataMeet Trust Pune).
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2 text-xs">
-              <div className="rounded-lg border border-blue-200/80 bg-white/80 px-3 py-1.5 shadow-xs">
-                <span className="block text-[10px] uppercase font-bold text-muted">PMC Admin Wards</span>
-                <span className="font-bold text-blue-700">15 Field Offices</span>
-              </div>
-              <div className="rounded-lg border border-emerald-200/80 bg-white/80 px-3 py-1.5 shadow-xs">
-                <span className="block text-[10px] uppercase font-bold text-muted">PCMC Electoral</span>
-                <span className="font-bold text-emerald-700">66 Polygons (6 Zones)</span>
-              </div>
-              <div className="rounded-lg border border-line bg-white/80 px-3 py-1.5 shadow-xs">
-                <span className="block text-[10px] uppercase font-bold text-muted">Electoral Total</span>
-                <span className="font-bold text-ink">144 Pune Wards</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Live Coordinate Input & Preset Bar */}
         <div className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
@@ -481,32 +436,68 @@ export function JurisdictionPage() {
           </div>
         ) : null}
 
-        {/* Main Geospatial Inspection Grid */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          {/* Interactive Map (7 cols) */}
-          <div className="lg:col-span-7">
-            <div className="h-[620px]">
+        {/* Main Geospatial Inspection Section (Stacked Top-Down) */}
+        <div className="space-y-6">
+          {/* 1. Interactive Map (Top) */}
+          <div className="rounded-xl border border-line bg-surface p-3 sm:p-4 shadow-sm">
+            <div className="flex items-center justify-between border-b border-line pb-2.5 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-md bg-action/10 text-action">
+                  <Compass className="size-4" />
+                </span>
+                <h2 className="font-display text-sm sm:text-base font-bold text-ink">
+                  Interactive Geospatial Demarcation Map
+                </h2>
+              </div>
+              <span className="text-xs font-mono text-muted">
+                {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
+              </span>
+            </div>
+
+            <div className="w-full overflow-hidden">
               <JurisdictionMap
                 activeCoordinates={coords}
                 resolution={resolution}
                 onCoordinatesChange={handleCoordinatesChangeFromMap}
               />
             </div>
-            <p className="mt-2 text-xs text-graphite flex items-center gap-1.5">
-              <Compass className="size-3.5 text-muted shrink-0" />
-              <span>
-                Tip: Click anywhere on the map or drag the inspection pin to check instant jurisdiction distinction.
+
+            <p className="mt-2.5 text-xs text-graphite flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Compass className="size-3.5 text-action shrink-0" />
+                <span>
+                  Tip: Click anywhere on the map or drag the pin to inspect instant jurisdiction, ward office &amp; haad distinction.
+                </span>
               </span>
+              <span className="hidden sm:inline text-[11px] text-muted">DataMeet Open Data &bull; OSM Vector</span>
             </p>
           </div>
 
-          {/* Real-Time Jurisdiction Resolution Card (5 cols) */}
-          <div className="space-y-4 lg:col-span-5">
-            <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted">Resolution Result</span>
+          {/* 2. Real-Time Jurisdiction Resolution Card (Bottom) */}
+          <div className="rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-sm">
+            {/* Header: Title, Authority Badge & Haad Status */}
+            <div className="flex flex-col gap-4 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                    Resolution Result (अधिकार क्षेत्र विश्लेषण)
+                  </span>
+                  <span className="text-xs font-semibold text-graphite">
+                    &bull; {resolution.classificationMarathi}
+                  </span>
+                </div>
+                <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-ink">
+                  {resolution.authorityFullName}
+                </h2>
+                <p className="text-sm font-semibold text-action flex items-center gap-1.5">
+                  <MapPin className="size-4 shrink-0 text-action" />
+                  <span>{resolution.detectedZoneOrPanchayat}</span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold text-white shadow-sm ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold text-white shadow-sm ${
                     resolution.authority === "PCMC"
                       ? "bg-emerald-600"
                       : resolution.authority === "PMC"
@@ -516,120 +507,139 @@ export function JurisdictionPage() {
                           : "bg-purple-600"
                   }`}
                 >
-                  <Shield className="size-3.5" />
-                  {resolution.authority}
+                  <Shield className="size-4" />
+                  <span>{resolution.authority} JURISDICTION</span>
                 </span>
-              </div>
 
-              {/* Authority & Classification Title */}
-              <div className="mt-4">
-                <span className="text-xs font-semibold text-graphite">{resolution.classificationMarathi}</span>
-                <h2 className="mt-0.5 font-display text-xl font-bold text-ink sm:text-2xl">
-                  {resolution.authorityFullName}
-                </h2>
-                <p className="mt-1 text-sm font-medium text-action flex items-center gap-1.5">
-                  <MapPin className="size-4 shrink-0" />
-                  <span>{resolution.detectedZoneOrPanchayat}</span>
-                </p>
-              </div>
-
-              {/* Mahanagarpalika Haad Status Banner */}
-              <div
-                className={`mt-4 flex items-center justify-between rounded-lg p-3 text-xs font-bold ${
-                  resolution.inMahanagarpalikaHaad
-                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                    : "bg-amber-50 text-amber-800 border border-amber-200"
-                }`}
-              >
-                <div className="flex items-center gap-2">
+                <div
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    resolution.inMahanagarpalikaHaad
+                      ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                      : "bg-amber-50 text-amber-800 border border-amber-200"
+                  }`}
+                >
                   {resolution.inMahanagarpalikaHaad ? (
-                    <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="size-3.5 text-emerald-600" />
                   ) : (
-                    <AlertCircle className="size-4 text-amber-600 shrink-0" />
+                    <AlertCircle className="size-3.5 text-amber-600" />
                   )}
                   <span>
                     {resolution.inMahanagarpalikaHaad
-                      ? "Within Official Mahanagarpalika Haad (महानगरपालिका हद्दीत)"
-                      : "Outside Mahanagarpalika Haad (ग्रामपंचायत / पीएमआरडीए)"}
+                      ? "Within Mahanagarpalika Haad (हद्दीत)"
+                      : "Outside Haad (ग्रामपंचायत / PMRDA)"}
+                  </span>
+                  <span className="text-[10px] text-muted underline">
+                    {resolution.inMahanagarpalikaHaad ? "MMCA 1949" : "MVPA 1959"}
                   </span>
                 </div>
-                <span className="text-[10px] uppercase tracking-wider underline">
-                  {resolution.inMahanagarpalikaHaad ? "MMCA 1949" : "MVPA 1959"}
+              </div>
+            </div>
+
+            {/* Borderland Buffer Collision Warning (If within dispute distance) */}
+            {resolution.isBorderlandBuffer ? (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-900 shadow-sm">
+                <div className="flex items-start gap-2.5">
+                  <ShieldAlert className="size-5 text-red-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold text-red-900 text-sm">
+                      Boundary Dispute Zone (&lt; {BORDER_DISPUTE_THRESHOLD_METRES}m from Corporation Divide)
+                    </strong>
+                    <p className="mt-1 text-red-800/90 leading-relaxed font-medium">
+                      {resolution.jointResolutionProtocol ??
+                        "This ticket is in the borderland buffer. Under MMCA Sec 67, officers are strictly barred from closing tickets with 'Not in our jurisdiction'. A joint inspection between PCMC and PMC must be initiated."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Multi-Column Metadata Cards Grid */}
+            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Card 1: Boundary Metrics */}
+              <div className="rounded-xl border border-line bg-fog/40 p-4">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                  <Compass className="size-3.5 text-action" />
+                  <span>Boundary Proximity</span>
                 </span>
+                <div className="mt-3 space-y-2 text-xs">
+                  <div>
+                    <span className="text-muted block text-[11px]">Distance to Nearest Divide:</span>
+                    <strong className="text-base font-bold text-ink">
+                      {resolution.distanceToNearestBoundaryMetres} metres
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-[11px]">Nearest Divide Name:</span>
+                    <span className="font-semibold text-ink line-clamp-1" title={resolution.nearestBoundaryName}>
+                      {resolution.nearestBoundaryName}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Borderland Buffer Collision Warning */}
-              {resolution.isBorderlandBuffer ? (
-                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-xs text-red-900 shadow-sm">
-                  <div className="flex items-start gap-2">
-                    <ShieldAlert className="size-4 text-red-600 shrink-0 mt-0.5" />
+              {/* Card 2: Legal & Planning Authority */}
+              <div className="rounded-xl border border-line bg-fog/40 p-4">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                  <Landmark className="size-3.5 text-action" />
+                  <span>Statute &amp; Planning</span>
+                </span>
+                <div className="mt-3 space-y-2 text-xs">
+                  <div>
+                    <span className="text-muted block text-[11px]">Governing Statute:</span>
+                    <strong className="font-semibold text-ink block">{resolution.governingAct}</strong>
+                  </div>
+                  <div>
+                    <span className="text-muted block text-[11px]">Planning Authority:</span>
+                    <span className="font-medium text-graphite block">{resolution.planningAuthority}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3: Civic Services & Helplines */}
+              <div className="rounded-xl border border-line bg-fog/40 p-4 sm:col-span-2 lg:col-span-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                  <PhoneCall className="size-3.5 text-emerald-600" />
+                  <span>Grievance &amp; Tax Portal</span>
+                </span>
+                <div className="mt-3 space-y-2 text-xs">
+                  <div>
+                    <span className="text-muted block text-[11px]">Property Tax System:</span>
+                    <span className="font-medium text-ink block">{resolution.propertyTaxSystem}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <div>
-                      <strong className="font-bold text-red-800">
-                        Boundary Dispute Zone (&lt; {BORDER_DISPUTE_THRESHOLD_METRES}m from Divide)
-                      </strong>
-                      <p className="mt-1 text-red-800/90 leading-relaxed">
-                        {resolution.jointResolutionProtocol ??
-                          "This ticket is in the borderland buffer. Under MMCA Sec 67, officers are strictly barred from closing tickets with 'Not in our jurisdiction'."}
-                      </p>
+                      <span className="text-muted block text-[11px]">Citizen Portal:</span>
+                      <a
+                        href={resolution.portalUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-action underline hover:text-action-hover inline-flex items-center gap-1"
+                      >
+                        <span>{resolution.grievanceRedressalSystem}</span>
+                        <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-muted block text-[11px]">Emergency Helpline:</span>
+                      <span className="font-bold text-ink">{resolution.grievanceHelpline}</span>
                     </div>
                   </div>
                 </div>
-              ) : null}
-
-              {/* Distance to Nearest Boundary */}
-              <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-fog/70 p-3 text-xs">
-                <div>
-                  <span className="text-muted block text-[11px]">Distance to Boundary</span>
-                  <strong className="text-sm font-bold text-ink">{resolution.distanceToNearestBoundaryMetres} metres</strong>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Nearest Divide</span>
-                  <span className="font-semibold text-ink line-clamp-1" title={resolution.nearestBoundaryName}>
-                    {resolution.nearestBoundaryName}
-                  </span>
-                </div>
               </div>
+            </div>
 
-              {/* Administrative Specifications */}
-              <dl className="mt-4 space-y-2.5 text-xs divide-y divide-line/60">
-                <div className="pt-2 flex items-center justify-between">
-                  <dt className="text-muted">Governing Statute:</dt>
-                  <dd className="font-medium text-ink">{resolution.governingAct}</dd>
-                </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <dt className="text-muted">Planning Authority:</dt>
-                  <dd className="font-medium text-ink">{resolution.planningAuthority}</dd>
-                </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <dt className="text-muted">Property Tax System:</dt>
-                  <dd className="font-medium text-ink">{resolution.propertyTaxSystem}</dd>
-                </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <dt className="text-muted">Grievance Portal:</dt>
-                  <dd className="font-medium text-action flex items-center gap-1">
-                    <a href={resolution.portalUrl} target="_blank" rel="noreferrer" className="underline hover:text-action-hover">
-                      {resolution.grievanceRedressalSystem}
-                    </a>
-                    <ExternalLink className="size-3" />
-                  </dd>
-                </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <dt className="text-muted">Officer / Helpline Contact:</dt>
-                  <dd className="font-bold text-ink flex items-center gap-1">
-                    <PhoneCall className="size-3.5 text-emerald-600" />
-                    <span>{resolution.grievanceHelpline}</span>
-                  </dd>
-                </div>
-              </dl>
-
-              {/* Field Officer Dispute Guidelines */}
-              <div className="mt-4 border-t border-line pt-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Officer Handling Guidelines:</span>
-                <ul className="mt-1.5 space-y-1 text-xs text-graphite list-disc list-inside">
-                  {resolution.disputeResolutionGuidelines.map((guide, i) => (
-                    <li key={i}>{guide}</li>
-                  ))}
-                </ul>
+            {/* Field Officer Dispute Directives */}
+            <div className="mt-5 rounded-xl border border-line bg-canvas p-4 text-xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted block mb-2">
+                Field Officer Statutory Directive (अधिकारी मार्गदर्शक तत्त्वे):
+              </span>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {resolution.disputeResolutionGuidelines.map((guide, i) => (
+                  <div key={i} className="flex items-start gap-2 bg-surface p-2.5 rounded-lg border border-line/60">
+                    <CheckCircle2 className="size-3.5 text-action shrink-0 mt-0.5" />
+                    <span className="text-graphite font-medium leading-relaxed">{guide}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

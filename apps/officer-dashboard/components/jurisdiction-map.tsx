@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AttributionControl,
   Layer,
@@ -12,8 +12,24 @@ import {
   type LayerProps,
   type MapLayerMouseEvent,
   type MarkerDragEvent,
+  type MapRef,
 } from "react-map-gl/maplibre";
-import { AlertTriangle, Compass, Layers, MapPin, Shield, Waves } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Compass,
+  Layers,
+  MapPin,
+  Maximize2,
+  Minimize2,
+  Minus,
+  Plus,
+  Shield,
+  Shrink,
+  Waves,
+  X,
+} from "lucide-react";
 import {
   BORDER_DISPUTE_THRESHOLD_METRES,
   GEOGRAPHIC_DIVIDERS,
@@ -181,17 +197,27 @@ const riverLineLayer: LayerProps = {
   },
 };
 
+export type MapViewMode = "normal" | "minimized" | "maximized";
+
 export type JurisdictionMapProps = {
   activeCoordinates: Coordinates;
   resolution: JurisdictionResolution;
   onCoordinatesChange: (coords: Coordinates) => void;
+  viewMode?: MapViewMode;
+  onViewModeChange?: (mode: MapViewMode) => void;
 };
 
 export function JurisdictionMap({
   activeCoordinates,
   resolution,
   onCoordinatesChange,
+  viewMode,
+  onViewModeChange,
 }: JurisdictionMapProps) {
+  const mapRef = useRef<MapRef | null>(null);
+  const [internalViewMode, setInternalViewMode] = useState<MapViewMode>("normal");
+  const currentViewMode = viewMode ?? internalViewMode;
+
   const [mapFailed, setMapFailed] = useState(false);
   const [showPcmc, setShowPcmc] = useState(true);
   const [showPmc, setShowPmc] = useState(true);
@@ -201,6 +227,54 @@ export function JurisdictionMap({
   const [showCantonment, setShowCantonment] = useState(true);
   const [showRivers, setShowRivers] = useState(true);
   const [showInfoPopup, setShowInfoPopup] = useState(true);
+  const [isLegendOpen, setIsLegendOpen] = useState(true);
+
+  const activeLayerCount = [
+    showDatameetPmcWards,
+    showDatameetPcmcZones,
+    showPcmc,
+    showPmc,
+    showGrampanchayat,
+    showCantonment,
+    showRivers,
+  ].filter(Boolean).length;
+
+  const setMode = (nextMode: MapViewMode) => {
+    if (onViewModeChange) {
+      onViewModeChange(nextMode);
+    } else {
+      setInternalViewMode(nextMode);
+    }
+    setTimeout(() => {
+      mapRef.current?.resize();
+    }, 150);
+  };
+
+  const handleZoomIn = () => {
+    mapRef.current?.zoomIn();
+  };
+
+  const handleZoomOut = () => {
+    mapRef.current?.zoomOut();
+  };
+
+  const handleToggleMaximize = () => {
+    setMode(currentViewMode === "maximized" ? "normal" : "maximized");
+  };
+
+  const handleToggleMinimize = () => {
+    setMode(currentViewMode === "minimized" ? "normal" : "minimized");
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && currentViewMode === "maximized") {
+        setMode("normal");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentViewMode]);
 
   // DataMeet Official PMC 15 Administrative Wards GeoJSON
   const datameetPmcGeoJson = useMemo(() => {
@@ -356,9 +430,10 @@ export function JurisdictionMap({
     onCoordinatesChange({ latitude: 18.5772, longitude: 73.8245 }); // Harris Bridge center
   };
 
-  return (
-    <div className="relative h-full min-h-[520px] w-full overflow-hidden rounded-xl border border-line bg-[#e9eef1] shadow-sm">
+  const mapContent = (
+    <div className="relative h-full w-full overflow-hidden bg-[#e9eef1]">
       <Map
+        ref={mapRef}
         initialViewState={{
           latitude: activeCoordinates.latitude,
           longitude: activeCoordinates.longitude,
@@ -515,102 +590,200 @@ export function JurisdictionMap({
       </Map>
 
       {/* Map Layers & Legend Toggle Overlay */}
-      <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-4rem)] flex-col gap-2 rounded-lg bg-surface/95 p-3 shadow-panel backdrop-blur-sm sm:left-4 sm:top-4">
-        <div className="flex items-center gap-2 border-b border-line pb-2">
-          <Layers className="size-4 text-graphite" />
-          <span className="font-display text-xs font-bold text-ink">Geospatial Haad Demarcation</span>
+      {!isLegendOpen ? (
+        <button
+          type="button"
+          onClick={() => setIsLegendOpen(true)}
+          className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-line/80 bg-surface/95 px-2.5 py-1 text-xs font-semibold text-ink shadow-panel backdrop-blur-sm transition-all hover:bg-fog hover:scale-[1.02] active:scale-[0.98] sm:left-4 sm:top-4"
+          title="Open Geospatial Haad Demarcation (Click to open)"
+          aria-label="Open Geospatial Haad Demarcation layers"
+        >
+          <Layers className="size-3.5 text-action" />
+          <span className="font-display text-[11px] font-bold text-ink">Layers</span>
+          <span className="rounded-full bg-action/10 px-1.5 py-0.2 text-[10px] font-bold text-action">
+            {activeLayerCount}
+          </span>
+          <ChevronDown className="size-3 text-graphite ml-0.5" />
+        </button>
+      ) : (
+        <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-4.5rem)] flex-col rounded-lg bg-surface/95 shadow-panel backdrop-blur-sm sm:left-4 sm:top-4 transition-all">
+          <div
+            onClick={() => setIsLegendOpen(false)}
+            className="flex cursor-pointer items-center justify-between gap-3 border-b border-line p-2.5 sm:px-3 sm:py-2 select-none hover:bg-fog/50 rounded-t-lg transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Layers className="size-4 text-action" />
+              <span className="font-display text-xs font-bold text-ink">Geospatial Haad Demarcation</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLegendOpen(false);
+              }}
+              className="grid size-6 place-items-center rounded-md border border-line/60 bg-surface text-graphite hover:bg-fog hover:text-ink transition-colors shadow-2xs"
+              title="Minimize legend (Click to close)"
+              aria-label="Minimize legend"
+            >
+              <ChevronUp className="size-3.5" />
+            </button>
+          </div>
+
+          <div className="p-3 pt-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showDatameetPmcWards}
+                  onChange={(e) => setShowDatameetPmcWards(e.target.checked)}
+                  className="accent-blue-700"
+                />
+                <span className="size-2 rounded-full bg-blue-700" />
+                <span className="font-semibold text-graphite">DataMeet PMC 15 Wards</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showDatameetPcmcZones}
+                  onChange={(e) => setShowDatameetPcmcZones(e.target.checked)}
+                  className="accent-emerald-700"
+                />
+                <span className="size-2 rounded-full bg-emerald-700" />
+                <span className="font-semibold text-graphite">DataMeet PCMC Zones</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showPcmc}
+                  onChange={(e) => setShowPcmc(e.target.checked)}
+                  className="accent-emerald-600"
+                />
+                <span className="size-2 rounded-full bg-emerald-600" />
+                <span className="font-semibold text-graphite">PCMC Outer Haad</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showPmc}
+                  onChange={(e) => setShowPmc(e.target.checked)}
+                  className="accent-blue-600"
+                />
+                <span className="size-2 rounded-full bg-blue-600" />
+                <span className="font-semibold text-graphite">PMC Outer Haad</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showGrampanchayat}
+                  onChange={(e) => setShowGrampanchayat(e.target.checked)}
+                  className="accent-amber-600"
+                />
+                <span className="size-2 rounded-full bg-amber-600" />
+                <span className="font-semibold text-graphite">Grampanchayat (PMRDA/हिंजवडी)</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showCantonment}
+                  onChange={(e) => setShowCantonment(e.target.checked)}
+                  className="accent-purple-600"
+                />
+                <span className="size-2 rounded-full bg-purple-600" />
+                <span className="font-semibold text-graphite">Cantonments (खडकी/कॅम्प)</span>
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
+                <input
+                  type="checkbox"
+                  checked={showRivers}
+                  onChange={(e) => setShowRivers(e.target.checked)}
+                  className="accent-sky-600"
+                />
+                <Waves className="size-3 text-sky-600" />
+                <span className="font-semibold text-graphite">Dividing Rivers (मुळा/पवना)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Controls Toolbar (+ / - Zoom, Maximize, Minimize, Recenter) */}
+      <div className="absolute right-3 top-3 z-10 flex flex-col items-center rounded-xl border border-line bg-surface/95 p-1 shadow-md backdrop-blur-sm sm:right-4 sm:top-4 divide-y divide-line/60">
+        {/* Zoom In & Out Controls (+ / -) */}
+        <div className="flex flex-col gap-1 pb-1">
+          <button
+            type="button"
+            onClick={handleZoomIn}
+            className="grid size-8 place-items-center rounded-lg bg-surface hover:bg-fog text-ink transition-colors font-bold shadow-2xs hover:text-action"
+            title="Zoom In (+)"
+            aria-label="Zoom In"
+          >
+            <Plus className="size-4 stroke-[2.5]" />
+          </button>
+          <button
+            type="button"
+            onClick={handleZoomOut}
+            className="grid size-8 place-items-center rounded-lg bg-surface hover:bg-fog text-ink transition-colors font-bold shadow-2xs hover:text-action"
+            title="Zoom Out (-)"
+            aria-label="Zoom Out"
+          >
+            <Minus className="size-4 stroke-[2.5]" />
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showDatameetPmcWards}
-              onChange={(e) => setShowDatameetPmcWards(e.target.checked)}
-              className="accent-blue-700"
-            />
-            <span className="size-2 rounded-full bg-blue-700" />
-            <span className="font-semibold text-graphite">DataMeet PMC 15 Wards</span>
-          </label>
+        {/* Viewport Resize Controls (Maximize & Minimize) */}
+        <div className="flex flex-col gap-1 py-1">
+          <button
+            type="button"
+            onClick={handleToggleMaximize}
+            className={`grid size-8 place-items-center rounded-lg transition-colors shadow-2xs ${
+              currentViewMode === "maximized"
+                ? "bg-action text-white"
+                : "bg-surface hover:bg-fog text-graphite hover:text-ink"
+            }`}
+            title={currentViewMode === "maximized" ? "Restore Standard View" : "Maximize Map (Fullscreen)"}
+            aria-label="Maximize Map"
+          >
+            {currentViewMode === "maximized" ? (
+              <Minimize2 className="size-4" />
+            ) : (
+              <Maximize2 className="size-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleMinimize}
+            className={`grid size-8 place-items-center rounded-lg transition-colors shadow-2xs ${
+              currentViewMode === "minimized"
+                ? "bg-action text-white"
+                : "bg-surface hover:bg-fog text-graphite hover:text-ink"
+            }`}
+            title={currentViewMode === "minimized" ? "Restore Standard Height" : "Minimize Map (Compact View)"}
+            aria-label="Minimize Map"
+          >
+            <Shrink className="size-4" />
+          </button>
+        </div>
 
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showDatameetPcmcZones}
-              onChange={(e) => setShowDatameetPcmcZones(e.target.checked)}
-              className="accent-emerald-700"
-            />
-            <span className="size-2 rounded-full bg-emerald-700" />
-            <span className="font-semibold text-graphite">DataMeet PCMC Zones</span>
-          </label>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showPcmc}
-              onChange={(e) => setShowPcmc(e.target.checked)}
-              className="accent-emerald-600"
-            />
-            <span className="size-2 rounded-full bg-emerald-600" />
-            <span className="font-semibold text-graphite">PCMC Outer Haad</span>
-          </label>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showPmc}
-              onChange={(e) => setShowPmc(e.target.checked)}
-              className="accent-blue-600"
-            />
-            <span className="size-2 rounded-full bg-blue-600" />
-            <span className="font-semibold text-graphite">PMC Outer Haad</span>
-          </label>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showGrampanchayat}
-              onChange={(e) => setShowGrampanchayat(e.target.checked)}
-              className="accent-amber-600"
-            />
-            <span className="size-2 rounded-full bg-amber-600" />
-            <span className="font-semibold text-graphite">Grampanchayat (PMRDA/हिंजवडी)</span>
-          </label>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showCantonment}
-              onChange={(e) => setShowCantonment(e.target.checked)}
-              className="accent-purple-600"
-            />
-            <span className="size-2 rounded-full bg-purple-600" />
-            <span className="font-semibold text-graphite">Cantonments (खडकी/कॅम्प)</span>
-          </label>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-fog">
-            <input
-              type="checkbox"
-              checked={showRivers}
-              onChange={(e) => setShowRivers(e.target.checked)}
-              className="accent-sky-600"
-            />
-            <Waves className="size-3 text-sky-600" />
-            <span className="font-semibold text-graphite">Dividing Rivers (मुळा/पवना)</span>
-          </label>
+        {/* Recenter */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={handleRecenter}
+            className="grid size-8 place-items-center rounded-lg bg-surface hover:bg-fog text-graphite hover:text-action transition-colors shadow-2xs"
+            title="Center on Border Divide (Harris Bridge)"
+            aria-label="Center on Border Divide"
+          >
+            <Compass className="size-4" />
+          </button>
         </div>
       </div>
-
-      {/* Recenter & Quick Action Button */}
-      <button
-        className="absolute bottom-[74px] right-[10px] z-10 grid size-[32px] place-items-center rounded border border-[#c7cdd1] bg-white text-ink shadow-sm transition-colors hover:bg-fog focus-visible:outline-2 active:scale-[0.96]"
-        type="button"
-        aria-label="Center on Border Divide"
-        title="Center on Harris Bridge (PCMC-PMC Border)"
-        onClick={handleRecenter}
-      >
-        <Compass className="size-4" strokeWidth={1.8} />
-      </button>
 
       {mapFailed ? (
         <div className="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-4 rounded-md border border-[#d9b6b6] bg-[#fff8f7] px-4 py-3 text-sm text-danger shadow-panel">
@@ -620,6 +793,72 @@ export function JurisdictionMap({
           </button>
         </div>
       ) : null}
+    </div>
+  );
+
+  if (currentViewMode === "maximized") {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-ink/75 p-2 sm:p-5 backdrop-blur-md">
+        <div className="relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
+          {/* Maximized Header Toolbar */}
+          <div className="flex items-center justify-between border-b border-line bg-surface px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="grid size-6 place-items-center rounded bg-action/10 text-action">
+                <Compass className="size-4" />
+              </span>
+              <span className="font-display text-sm font-bold text-ink">
+                Geospatial Boundary Demarcation Map (Expanded Fullscreen)
+              </span>
+              <span className="rounded bg-fog px-2 py-0.5 text-xs font-mono text-graphite hidden sm:inline">
+                {activeCoordinates.latitude.toFixed(5)}, {activeCoordinates.longitude.toFixed(5)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="grid size-8 place-items-center rounded-lg border border-line bg-surface text-ink hover:bg-fog shadow-2xs font-bold"
+                title="Zoom In (+)"
+              >
+                <Plus className="size-4 stroke-[2.5]" />
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                className="grid size-8 place-items-center rounded-lg border border-line bg-surface text-ink hover:bg-fog shadow-2xs font-bold"
+                title="Zoom Out (-)"
+              >
+                <Minus className="size-4 stroke-[2.5]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("normal")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-graphite hover:bg-fog hover:text-ink shadow-2xs"
+                title="Restore Normal View (Esc)"
+              >
+                <Minimize2 className="size-3.5" />
+                <span>Restore View</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Fullscreen Map Canvas */}
+          <div className="relative flex-1 h-full w-full">
+            {mapContent}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`relative w-full overflow-hidden rounded-xl border border-line bg-[#e9eef1] shadow-sm transition-all duration-300 ${
+        currentViewMode === "minimized" ? "h-[280px]" : "h-[540px]"
+      }`}
+    >
+      {mapContent}
     </div>
   );
 }
