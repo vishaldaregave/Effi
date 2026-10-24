@@ -6,6 +6,7 @@ import {
 } from "eve/channels/telegram";
 import { telegramReportIngress } from "../lib/telegram-reporting.js";
 import {
+  detectTextLanguage,
   isReportReviewMessage,
   isReportReadyForReview,
   synthesizeVoiceOrUndefined,
@@ -69,9 +70,10 @@ const sendTelegramVoiceReply = async (telegram: TelegramHandle, text: string): P
   const isFinalInterpretation = isReportReadyForReview(
     telegramReportIngress.store.activeConversation("telegram", telegramConversationFor(telegram)),
   ) || isReportReviewMessage(text);
+  const replyLang = detectTextLanguage(text) ?? preference.languageCode ?? "mr-IN";
   const audio = await synthesizeVoiceOrUndefined(telegramReportIngress.voiceProvider, {
     text,
-    languageCode: preference.languageCode,
+    languageCode: replyLang,
   }, (error) => {
     console.warn("Effi Telegram voice synthesis failed; falling back to text:", error instanceof Error ? error.message : String(error));
   });
@@ -181,5 +183,69 @@ const config: TelegramChannelConfig = {
     };
   },
 };
+
+const normalizedUrl = import.meta.url.replace(/\\/g, "/");
+const isSourceChannelFile =
+  normalizedUrl.includes("/agent/channels/telegram.") &&
+  !normalizedUrl.includes(".eve") &&
+  !normalizedUrl.includes(".output");
+
+const startTelegramPoller = (): void => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+  if (!botToken || !secret) return;
+
+  const port = process.env.PORT ?? "2000";
+  const eveUrl = `http://127.0.0.1:${port}/eve/v1/telegram`;
+  let active = true;
+
+  const run = async () => {
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
+      console.info("[telegram] webhook cleared, long-polling activated");
+    } catch (err) {
+      console.warn("[telegram] failed to delete webhook:", err instanceof Error ? err.message : String(err));
+    }
+
+    let offset = 0;
+    while (active) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&timeout=25`);
+        if (!res.ok) {
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        const data = await res.json() as { ok?: boolean; result?: Array<{ update_id: number }> };
+        if (data.ok && Array.isArray(data.result)) {
+          for (const update of data.result) {
+            offset = update.update_id + 1;
+            try {
+              await fetch(eveUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-telegram-bot-api-secret-token": secret,
+                },
+                body: JSON.stringify(update),
+              });
+            } catch (postErr) {
+              console.warn("[telegram] failed to forward update to Eve webhook:", postErr instanceof Error ? postErr.message : String(postErr));
+            }
+          }
+        }
+      } catch {
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+    }
+  };
+
+  setTimeout(() => {
+    void run();
+  }, 2000);
+};
+
+if (process.env.TELEGRAM_POLL !== "0" && !isSourceChannelFile) {
+  startTelegramPoller();
+}
 
 export default telegramChannel(config);
