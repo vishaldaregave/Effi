@@ -222,7 +222,6 @@ describe("direct WhatsApp channel", () => {
     expect(record).toBeDefined();
     store.markAttachmentInspected("whatsapp", sender.jid, "photo-1");
     store.recordAttachmentQuality("whatsapp", sender.jid, "photo-1", "satisfactory");
-    store.recordReviewInterpretation("whatsapp", sender.jid, { issue: "A pothole blocks the road.", category: "roads" });
 
     const action = whatsappNumberedReviewAction("1", true);
     expect(action).toBe("confirm");
@@ -241,12 +240,8 @@ describe("direct WhatsApp channel", () => {
     expect(store.prepareSubmission({
       channel: "whatsapp",
       conversationId: sender.jid,
-      caseBrief: {
-        summary: "A pothole blocks the road.",
-        category: "roads",
-        priority: { priority: "medium", reasons: ["Blocks traffic"] },
-        citations: [{ kind: "accepted_evidence", attachmentId: "photo-1", explanation: "Shows pothole" }],
-      },
+      issue: "A pothole blocks the road.",
+      category: "roads",
       acceptedAttachmentIds: ["photo-1"],
       receivedAt: confirmation.receivedAt,
     }).authenticationLink).toBe("simulated-auth://pending_1");

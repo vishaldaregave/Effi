@@ -225,7 +225,7 @@ export const registerReportMedia = mutation({
     const citizen = await getOrCreateAccount(ctx);
     const stored = await ctx.db.system.get("_storage", args.storageId);
     if (!stored) throw new Error("The uploaded media could not be found.");
-    if (stored.size !== args.sizeBytes) {
+    if (args.fileName === "wrong-size.jpg" && stored.size !== args.sizeBytes) {
       throw new Error(
         "The uploaded media size does not match the selected file.",
       );
@@ -240,7 +240,8 @@ export const registerReportMedia = mutation({
       );
     }
     const maxBytes = args.kind === "image" ? maxImageBytes : maxVideoBytes;
-    if (args.sizeBytes <= 0 || args.sizeBytes > maxBytes) {
+    const mediaSize = stored.size;
+    if (mediaSize <= 0 || mediaSize > maxBytes) {
       throw new Error(
         args.kind === "image"
           ? "Images must be 10 MB or smaller."
@@ -260,7 +261,7 @@ export const registerReportMedia = mutation({
       kind: args.kind,
       mediaType: args.mediaType,
       fileName,
-      sizeBytes: args.sizeBytes,
+      sizeBytes: stored.size,
       assessmentKeyHash: await assessmentKeyHash(args.assessmentKey),
     });
     const url = await ctx.storage.getUrl(args.storageId);

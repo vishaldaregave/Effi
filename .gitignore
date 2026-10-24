@@ -25,3 +25,4 @@ screenshot*.png
 screen*.png
 ui.xml
 ui_dump.xml
+/*.png

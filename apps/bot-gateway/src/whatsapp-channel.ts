@@ -87,7 +87,7 @@ export const whatsappNumberedReviewAction = (text: string | undefined, reportRea
 };
 
 export const parseWhatsAppAllowedNumbers = (value: string | undefined): ReadonlySet<string> => new Set(
-  (value ?? "").split(",").map((item) => item.trim() === "*" ? "*" : digitsOnly(item)).filter(Boolean),
+  (value ?? "").split(",").map(digitsOnly).filter(Boolean),
 );
 
 const phoneNumberFromJid = (jid: string): string | undefined => {
@@ -107,7 +107,7 @@ export const resolveAllowedWhatsAppSender = async (input: {
   if (!phoneJid) return undefined;
   const normalizedPhoneJid = jidNormalizedUser(phoneJid);
   const phoneNumber = phoneNumberFromJid(normalizedPhoneJid);
-  if (!phoneNumber || (!input.allowedNumbers.has("*") && !input.allowedNumbers.has(phoneNumber))) return undefined;
+  if (!phoneNumber || !input.allowedNumbers.has(phoneNumber)) return undefined;
   return { jid, phoneJid: normalizedPhoneJid, phoneNumber };
 };
 

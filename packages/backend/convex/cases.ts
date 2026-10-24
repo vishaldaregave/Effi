@@ -709,3 +709,35 @@ export const verifyResolution = mutation({
   },
 });
 
+export const assignActiveCases = mutation({
+  args: {},
+  handler: async (ctx) => {
+    let officer = await ctx.db
+      .query("identities")
+      .withIndex("by_role", (q) => q.eq("role", "officer"))
+      .first();
+    if (!officer) {
+      officer = await ctx.db
+        .query("identities")
+        .withIndex("by_role", (q) => q.eq("role", "admin"))
+        .first();
+    }
+    const officerId = officer?._id;
+    const officerName = officer?.displayName ?? "Officer Vishal";
+    const allCases = await ctx.db.query("cases").collect();
+    let updated = 0;
+    for (const c of allCases) {
+      if (c.status === "new" || c.status === "awaiting_confirmation") {
+        await ctx.db.patch(c._id, {
+          status: "assigned",
+          assignedOfficerId: officerId,
+          assignedOfficerName: officerName,
+        });
+        updated++;
+      }
+    }
+    return { updated, officerName };
+  },
+});
+
+

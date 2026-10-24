@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { inputRequestTranscriptEntries } from "../agent/lib/transcript.js";
 
-const event = (requests: unknown) => ({
+const event = (requests: any) => ({
   meta: { id: "evt_1", at: "2026-09-11T04:43:00.000Z" },
   data: { requests },
 });

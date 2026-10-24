@@ -76,8 +76,7 @@ import {
 const OPENING_MESSAGE =
   "Hi, I'm Effi. Tell me what happened, and I'll help you report it.";
 const gateway = botGatewayConfig(
-  process.env.EXPO_PUBLIC_EFFI_BOT_GATEWAY_URL ||
-    "https://slow-invoice-meaningful-switched.trycloudflare.com",
+  process.env.EXPO_PUBLIC_EFFI_BOT_GATEWAY_URL || "http://localhost:2000",
 );
 
 type RegisterMediaArgs = {
@@ -743,6 +742,7 @@ function OpeningMessage() {
 
 function ChatMessage() {
   const role = useAuiState((state) => state.message.role);
+  const content = useAuiState((state) => state.message.content);
   const { gatewayHost, preferredLanguage, detectedLanguage } = useReportFlow();
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");
@@ -771,6 +771,16 @@ function ChatMessage() {
       </MessagePrimitive.Root>
     );
   }
+
+  const hasText = content?.some(
+    (part) =>
+      part &&
+      part.type === "text" &&
+      typeof (part as { text?: unknown }).text === "string" &&
+      (part as { text: string }).text.trim().length > 0,
+  );
+
+  if (!hasText) return null;
 
   const effectivePlaybackLanguage =
     preferredLanguage !== "auto"
@@ -868,9 +878,14 @@ function TypingIndicator() {
   const isWaitingForContent = useAuiState((state) => {
     if (!state.thread.isRunning) return false;
     const latestMessage = state.thread.messages.at(-1);
-    return (
-      latestMessage?.role !== "assistant" || latestMessage.content.length === 0
+    const hasText = latestMessage?.content?.some(
+      (part) =>
+        part &&
+        part.type === "text" &&
+        typeof (part as { text?: unknown }).text === "string" &&
+        (part as { text: string }).text.trim().length > 0,
     );
+    return latestMessage?.role !== "assistant" || !hasText;
   });
   const surface = useColor("homeSurface");
   const border = useColor("homeBorder");

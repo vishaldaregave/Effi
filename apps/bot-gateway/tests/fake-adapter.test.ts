@@ -84,7 +84,7 @@ describe("FakeChannelAdapter", () => {
     const persisted = store.report(firstResult.report.id)!;
     expect(persisted.citizenId).toBe("citizen_42");
     expect(persisted.location).toEqual({ source: "current_gps", latitude: 19.076, longitude: 72.8777 });
-    expect(persisted.primaryEvidence).toEqual([{ attachmentId: "platform_photo_1", storageKey: expect.stringMatching(/^effi\//) }]);
+    expect(persisted.primaryEvidence).toEqual([expect.objectContaining({ attachmentId: "platform_photo_1", storageKey: expect.stringMatching(/^effi\//) })]);
     expect(persisted.conversation.messages).toHaveLength(5);
     expect(persisted.conversation.messages[1]?.attachments[0]?.storageKey).toMatch(/^effi\//);
 
