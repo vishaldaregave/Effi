@@ -41,3 +41,4 @@ corepack pnpm --filter @effi/citizen-app android         # Expo app on a device 
 - `packages/*` - civic domain, backend, UI, and integration boundaries
 
 Run `pnpm check` before opening a pull request.
+............
