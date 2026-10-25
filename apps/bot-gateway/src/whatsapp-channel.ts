@@ -100,7 +100,7 @@ export const resolveAllowedWhatsAppSender = async (input: {
   jid: string | null | undefined;
   allowedNumbers: ReadonlySet<string>;
   getPhoneJidForLid: (lid: string) => Promise<string | null>;
-  participant?: string | null;
+  participant?: string | null | undefined;
 }): Promise<WhatsAppSenderIdentity | undefined> => {
   const jid = input.jid ? jidNormalizedUser(input.jid) : "";
   if (!jid || (!isPnUser(jid) && !isLidUser(jid))) return undefined;
