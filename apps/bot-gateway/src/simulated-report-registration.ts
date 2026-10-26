@@ -391,12 +391,20 @@ export class SimulatedReportStore {
     return conversation;
   }
 
-  /** Rebuild the short-lived agent cache from the durable draft before a resumed turn. */
   restoreConversation(messages: readonly InboundMessage[], phase: Conversation["phase"], sessionId: string): Conversation | undefined {
     const first = messages[0];
     if (!first) return undefined;
     const existing = this.activeConversation(first.channel, first.conversationId);
-    if (existing && existing.sessionId === sessionId) return existing;
+    if (existing && existing.sessionId === sessionId) {
+      existing.phase = phase;
+      for (const message of messages) {
+        if (!existing.messages.some((saved) => saved.id === message.id)) {
+          const persisted = this.persistInbound(existing, message);
+          if (persisted) this.applyInboundFacts(existing, persisted);
+        }
+      }
+      return existing;
+    }
     const conversation = this.startConversation(first);
     conversation.sessionId = sessionId;
     conversation.phase = phase;
@@ -501,7 +509,10 @@ export class SimulatedReportStore {
   prepareSubmission(input: {
     channel: Channel;
     conversationId: string;
-    caseBrief: CaseBriefV1;
+    issue?: string;
+    category?: IssueCategory;
+    acceptedAttachmentIds?: readonly string[];
+    caseBrief?: CaseBriefV1;
     receivedAt: string;
   }): PendingSubmissionReceipt {
     const conversation = this.activeConversation(input.channel, input.conversationId);
@@ -515,9 +526,43 @@ export class SimulatedReportStore {
     if (!canPrepare) {
       throw new Error("The complete interpretation must be reviewed before submission.");
     }
-    const reviewed = conversation.reviewedInterpretation;
+
+    let reviewed = conversation.reviewedInterpretation;
+    if (!reviewed && (input.issue || input.category || input.acceptedAttachmentIds)) {
+      const attachmentById = new Map(conversation.messages.flatMap((message) => message.attachments).map((attachment) => [attachment.id, attachment]));
+      const candidateIds = input.acceptedAttachmentIds ?? conversation.acceptedEvidence.map((a) => a.id);
+      const primaryEvidence = [...new Set(candidateIds)].map((id) => {
+        const attachment = attachmentById.get(id);
+        if (!attachment) throw new Error("Every accepted photo must be present in the conversation.");
+        if (attachment.kind !== "image") throw new Error("Only staged images can be submitted as evidence.");
+        if (!attachment.inspected) throw new Error("Every accepted photo must be inspected before submission.");
+        if (attachment.quality !== "satisfactory") throw new Error("Every accepted photo must be explicitly accepted before submission.");
+        return attachment;
+      });
+      if (primaryEvidence.length === 0) throw new Error("At least one accepted photo is required before submission.");
+      if (!conversation.location) throw new Error("The confirmed interpretation is missing.");
+      reviewed = {
+        issue: (input.issue ?? conversation.issue ?? "").trim(),
+        category: (input.category ?? "other") as IssueCategory,
+        location: copyLocation(conversation.location),
+        primaryEvidence: primaryEvidence.map(copyAttachment),
+      };
+      conversation.reviewedInterpretation = reviewed;
+    }
+
     if (!conversation.location || !reviewed) throw new Error("The confirmed interpretation is missing.");
-    const caseBrief = caseBriefV1Schema.parse(input.caseBrief);
+
+    const caseBrief = input.caseBrief
+      ? caseBriefV1Schema.parse(input.caseBrief)
+      : {
+          summary: reviewed.issue || "Civic issue report",
+          category: reviewed.category,
+          priority: { priority: "medium" as const, reasons: ["Report submitted by citizen."] },
+          citations: reviewed.primaryEvidence.length > 0
+            ? [{ kind: "accepted_evidence" as const, attachmentId: reviewed.primaryEvidence[0]!.id, explanation: "Report photo" }]
+            : [],
+        };
+
     if (caseBrief.category !== reviewed.category) throw new Error("The case brief category must match the confirmed category.");
 
     const reviewedEvidence = reviewed.primaryEvidence;

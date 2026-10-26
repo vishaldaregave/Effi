@@ -12,6 +12,7 @@ packages/backend/convex/_generated/
 expo-env.d.ts
 .data/
 .effi/
+.eve/
 .scratch/
 .vercel
 .env*
@@ -25,3 +26,4 @@ screenshot*.png
 screen*.png
 ui.xml
 ui_dump.xml
+/*.png

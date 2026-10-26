@@ -12,7 +12,7 @@ const geminiModel = process.env.GEMINI_MODEL ?? "gemini-flash-lite-latest";
 export default defineAgent({
   model: defineDynamic({
     events: {
-      "step.started": (_event, ctx) => {
+      "step.started": (_event: unknown, ctx: { session: { id: string } }): any => {
         const apiKey = process.env.OPENCODE_API_KEY;
         if (apiKey) {
           const commandCode = createOpenAI({

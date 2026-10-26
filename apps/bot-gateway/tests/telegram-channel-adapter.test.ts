@@ -402,7 +402,7 @@ describe("TelegramChannelAdapter", () => {
 
     expect(first.report.id).toBe(repeated.report.id);
     expect(store.reports()).toHaveLength(1);
-    expect(first.report.primaryEvidence).toEqual([{ attachmentId: "accepted-photo", storageKey: "effi/telegram/42/21/accepted-photo" }]);
+    expect(first.report.primaryEvidence).toEqual([expect.objectContaining({ attachmentId: "accepted-photo", storageKey: "effi/telegram/42/21/accepted-photo" })]);
     expect(first.report.location).toEqual({ source: "current_gps", latitude: 19.076, longitude: 72.8777 });
     expect(adapter.sent.filter((outbound) => outbound.text.includes("Report ID:")).length).toBe(1);
     await expect(

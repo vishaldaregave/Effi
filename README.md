@@ -40,4 +40,5 @@ corepack pnpm --filter @effi/citizen-app android         # Expo app on a device 
 - `apps/bot-gateway` - Eve gateway for Telegram and WhatsApp
 - `packages/*` - civic domain, backend, UI, and integration boundaries
 
-Run `pnpm check` before opening a pull request...........
+Run `pnpm check` before opening a pull request.
+............
