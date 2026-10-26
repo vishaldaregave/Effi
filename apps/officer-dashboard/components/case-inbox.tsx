@@ -1,11 +1,13 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Compass, Plus, Search, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useConvexAuth, useQuery_experimental } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, Button, Skeleton, type BadgeTone } from "@effi/ui-web";
+import { routeComplaintByCoordinates, type Coordinates } from "@effi/domain";
+import { ComplaintRegistrationModal } from "./complaint-registration-modal";
 import { OfficerShell } from "./officer-shell";
 import {
   caseCategoryLabels,
@@ -196,6 +198,14 @@ export function CaseInbox({ initialView }: { initialView: "cases" | "assigned" }
   const [priorities, setPriorities] = useState<CasePriority[]>([]);
   const [sort, setSort] = useState<InboxSort>("newest");
   const [search, setSearch] = useState("");
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [recentComplaint, setRecentComplaint] = useState<{
+    reportNumber: string;
+    summary: string;
+    category: string;
+    coordinates: Coordinates;
+    routing: ReturnType<typeof routeComplaintByCoordinates>;
+  } | null>(null);
 
   const cases = result.status === "success" ? result.data : null;
   const filters = useMemo<InboxFilters>(() => ({ statuses, priorities }), [statuses, priorities]);
@@ -340,14 +350,78 @@ export function CaseInbox({ initialView }: { initialView: "cases" | "assigned" }
     <OfficerShell activeNav={initialView} assignedCount={assignedCount} caseCount={cases?.length} search={searchControl}>
     <section className="w-full" aria-labelledby="case-inbox-title">
       <header className="pb-5 pt-6 sm:pb-6 sm:pt-7">
-        <div>
-          <h1 className="font-display text-[clamp(2.5rem,4vw,3.75rem)] font-medium leading-none tracking-[-0.04em] text-ink" id="case-inbox-title">{initialView === "assigned" ? "My assigned" : "Cases"}</h1>
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
+            <h1 className="font-display text-[clamp(2.5rem,4vw,3.75rem)] font-medium leading-none tracking-[-0.04em] text-ink" id="case-inbox-title">{initialView === "assigned" ? "My assigned" : "Cases"}</h1>
             <p className="mt-3 max-w-[46ch] text-[15px] leading-relaxed text-graphite">{initialView === "assigned" ? "Cases currently assigned to your officer account." : "Review and manage confirmed civic issues."}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/jurisdiction"
+              className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs font-semibold text-graphite hover:border-action hover:text-ink transition-colors shadow-sm"
+            >
+              <Compass className="size-4 text-action" />
+              <span>Haad &amp; Boundary Map</span>
+            </Link>
+            <Button
+              variant="primary"
+              onClick={() => setIsRegisterOpen(true)}
+              className="inline-flex items-center gap-2"
+            >
+              <Plus className="size-4" />
+              <span>Register Complaint (Auto-Route)</span>
+            </Button>
           </div>
         </div>
       </header>
+
+      {recentComplaint && (
+        <div className="mb-6 rounded-xl border border-action/30 bg-action/5 p-4 sm:p-5 text-ink shadow-sm animate-in fade-in">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-action/20 p-2 text-action">
+                <ShieldCheck className="size-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-action">
+                    {recentComplaint.reportNumber}
+                  </span>
+                  <span className="rounded-full bg-surface px-2.5 py-0.5 text-[11px] font-bold text-ink border border-line">
+                    Auto-Routed to {recentComplaint.routing.authority} Officer
+                  </span>
+                  <span className="text-xs text-muted">
+                    ({recentComplaint.coordinates.latitude.toFixed(4)}° N, {recentComplaint.coordinates.longitude.toFixed(4)}° E)
+                  </span>
+                </div>
+                <h3 className="mt-1 font-display text-base font-semibold text-ink">
+                  {recentComplaint.summary}
+                </h3>
+                <p className="mt-1 text-xs text-graphite">
+                  Designated Officer: <strong className="text-ink">{recentComplaint.routing.designatedOfficerTitle}</strong> &bull; {recentComplaint.routing.designatedDepartment} &bull; Zone: <span className="font-medium text-ink">{recentComplaint.routing.zoneOrWard}</span> &bull; SLA: <strong className="text-action">{recentComplaint.routing.slaTargetHours}h</strong>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRecentComplaint(null)}
+              className="text-xs text-muted hover:text-ink underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {body}
+
+      <ComplaintRegistrationModal
+        isOpen={isRegisterOpen}
+        onClose={() => setIsRegisterOpen(false)}
+        onRegistered={(complaint) => {
+          setRecentComplaint(complaint);
+        }}
+      />
     </section>
     </OfficerShell>
   );

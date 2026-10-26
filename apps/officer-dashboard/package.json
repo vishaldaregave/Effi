@@ -20,6 +20,7 @@
     "@clerk/nextjs": "catalog:",
     "@effi/auth-contracts": "workspace:*",
     "@effi/design-tokens": "workspace:*",
+    "@effi/domain": "workspace:*",
     "@effi/ui-web": "workspace:*",
     "ai": "^7.0.97",
     "class-variance-authority": "^0.7.1",
@@ -29,6 +30,7 @@
     "maplibre-gl": "^5.24.0",
     "mem0ai": "^3.1.8",
     "next": "catalog:",
+    "qrcode": "^1.5.4",
     "radix-ui": "^1.6.7",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -41,6 +43,7 @@
     "@effi/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "catalog:",
     "tailwindcss": "^4.3.3",
     "vitest": "catalog:"
